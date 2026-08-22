@@ -2210,7 +2210,23 @@ PAGE = """<!doctype html>
   .bindsum:hover { color:var(--fg); }
   .bindsum.harbind { color:var(--ok); }
   .grp-pil { display:inline-block; width:14px; color:var(--acc); }
-  .sub-label { color:var(--dim); font-size:12px; text-align:right; }
+  /* ---- Objekttabellen som TRE ----
+     Rutenettet kom av border på hver celle. Uten det, og med
+     grenglyfer i første kolonne, leses den som kablingstreet: node
+     → objekt → binding. <table> beholdes som mekanikk, fordi
+     kolonnene MÅ flukte når en rad er utfoldet — og fordi collect()
+     leser radene der lagringen skjer. Utseendet er skinn, ikke
+     ombygging av lagringsveien. */
+  #tbl td, #tbl th { border:none; padding:3px 8px; }
+  #tbl { background:transparent; }
+  #tbl thead th { color:#5b6572; font-size:10px; padding-bottom:6px; }
+  #tbl tr.fnrow:hover > td { background:#1b2129; }
+  #tbl tr.grphead td { background:transparent;
+                       border-top:1px solid var(--line); }
+  .tregren { color:#3d4854; font-family:ui-monospace, Menlo, monospace;
+             font-size:12px; user-select:none; white-space:pre; }
+  .sub-label { color:var(--dim); font-size:12px; text-align:left; }
+  .sub-label .tregren { margin-right:2px; }
   /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
      bryter) og hvor en UTGANG (lampe, motor). Fargen ligger på
      I2C-cellen, som er der brikketypen faktisk velges. */
@@ -2642,7 +2658,8 @@ function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   tr.className = "subrow";
   tr.dataset.sted = sted;
   if (sted2) tr.dataset.sted2 = sted2;
-  const lbl = sted2 ? `${merk(sted)} + ${merk(sted2)}` : merk(sted);
+  const lbl = `<span class="tregren"></span>` +
+              (sted2 ? `${merk(sted)} + ${merk(sted2)}` : merk(sted));
   const hoyre = sted2
     ? bindCells("t", b2 || {}, defaultI2c(sted2), sted2)
     : `<td colspan="3"></td>`;
@@ -2945,7 +2962,7 @@ function addRow(f, foerEl) {
   tr.dataset.avvikben = f.avvik_ben || "";
   tr.dataset.liggeri = f.ligger_i || "";
   tr.innerHTML = `
-    <td class="litra"><span class="rad-pil" onclick="radToggle(this)"
+    <td class="litra"><span class="tregren"></span><span class="rad-pil" onclick="radToggle(this)"
               title="Vis eller skjul portene for dette objektet">▸</span>` +
       `<input class="f-id" value="${attr(f.id)}" placeholder="A"></td>
     <td><select class="f-type" onchange="typeChanged(this)">
@@ -3120,6 +3137,37 @@ function grpOppdater() {
     const h = grpHeader(i);
     if (h) h.querySelector(".grp-tall").textContent = "(" + (tall[i] || 0) + ")";
   });
+  tregrener();
+}
+// Grenglyfene. «Siste i gruppen» må være siste SYNLIGE — ellers henger
+// grenen i løse luften når et filter skjuler halen av en gruppe.
+function tregrener() {
+  const rader = [...document.querySelectorAll("#tbl tbody tr")]
+                  .filter(tr => tr.style.display !== "none");
+  for (let i = 0; i < rader.length; i++) {
+    const tr = rader[i];
+    if (tr.classList.contains("grphead")) continue;
+    const gren = tr.querySelector(".tregren");
+    if (!gren) continue;
+    if (tr.classList.contains("fnrow")) {
+      // siste objekt i gruppen? (neste synlige er gruppeslutt)
+      let j = i + 1;
+      while (j < rader.length && rader[j].classList.contains("subrow")) j++;
+      const sist = j >= rader.length || rader[j].classList.contains("grphead");
+      gren.textContent = sist ? "└─" : "├─";
+    } else {
+      // underrad: fortsettelsesstrek hvis objektet ikke var siste
+      const foreldreSist =
+        [...document.querySelectorAll("#tbl tbody tr")]
+          .slice(0, [...document.querySelectorAll("#tbl tbody tr")].indexOf(tr))
+          .reverse().find(r => r.classList.contains("fnrow"));
+      const p = foreldreSist && foreldreSist.querySelector(".tregren");
+      const sisteUnder = !(rader[i + 1] &&
+                           rader[i + 1].classList.contains("subrow"));
+      gren.textContent = (p && p.textContent === "└─" ? "  " : "│ ") +
+                         (sisteUnder ? " └─" : " ├─");
+    }
+  }
 }
 
 // Tegnefeltene (sporplanens portmodell m.m.) gjelder KUN tegningen av
