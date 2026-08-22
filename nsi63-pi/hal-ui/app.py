@@ -2339,7 +2339,9 @@ PAGE = """<!doctype html>
   <div class="card">
     <h2>Kabling</h2>
     <p class="hint">Samme bindinger som på Objekter-siden, lest fra
-    motsatt kant: node → brikke → port. Her ser du hva som ligger hvor,
+    motsatt kant: node → brikke → port. Bare brikkene noden faktisk
+    fant ved I2C-skanningen vises — pluss GPIO, som alltid finnes, og
+    alt som er bundet. Her ser du hva som ligger hvor,
     hvilke porter som er ledige, og hvor mye av nodens 40 ordrepunkter
     som er brukt. Et signal med flere lamper opptar PÅFØLGENDE kanaler
     fra bindingsporten — de vises som ett spenn, så du ikke legger noe
@@ -2347,7 +2349,7 @@ PAGE = """<!doctype html>
     <div class="bar" style="margin:6px 0">
       <label class="hint" style="cursor:pointer">
         <input type="checkbox" id="kb-alle" onchange="kbRender()">
-        vis også tomme brikker</label>
+        vis alle mulige brikkeadresser</label>
       <span class="hint">Klikk et objekt for å redigere det på
       Objekter-siden.</span>
     </div>
@@ -3628,12 +3630,21 @@ function oppdaterStatus() {
 // LESEVISNING. Redigering skjer fortsatt på Objekter-siden, som eier
 // lagringen (collect() leser DOM-en der). To steder å redigere fra
 // ville betydd to kilder til sannhet for hva som lagres.
-let KBFN = [], KBNODER = {}, KBSIGT = {};
+let KBFN = [], KBNODER = {}, KBSIGT = {}, KBSKANN = {};
 async function kbLoad() {
   const h = await (await fetch("/api/hal")).json();
   KBFN = h.functions || [];
   KBNODER = h.noder || {};
   KBSIGT = h.signaltyper || {};   // lampeantall -> portspenn
+  // Nodene skanner I2C-bussen ved boot og melder hva de FANT. Det er
+  // fasit for hvilke brikker som finnes — vi gjetter ikke.
+  KBSKANN = {};
+  try {
+    const nd = await (await fetch("/api/nodes")).json();
+    for (const n2 of (nd.nodes || []))
+      KBSKANN[(n2.mac || "").toLowerCase()] =
+        {i2c: n2.i2c || [], online: !!n2.online};
+  } catch (e) { /* offline Pi: fall tilbake på bundne brikker */ }
   kbRender();
 }
 // Alle bindinger samlet per (node, brikke, port). En binding kan
@@ -3690,11 +3701,21 @@ function kbRender() {
     const brukt = ordrer[nd] || 0;
     ut += `<b>${attr(nd)}</b> <span class="kb-dim">· ${attr(mac)} · ` +
           `${brukt} av 40 ordrepunkter</span>\\n`;
-    const brikker = KB_BRIKKER.filter(a =>
-      visAlle || (kart[nd] && kart[nd][a]));
-    if (!brikker.length) {
-      ut += `   <span class="kb-dim">ingen porter bundet ennå</span>\\n`;
-    }
+    // Hvilke brikker skal vises? Det noden FANT ved skanning, pluss
+    // det som faktisk er bundet (en binding til en brikke noden ikke
+    // har, skal ikke skjules — den er nettopp feilen man vil se), og
+    // GPIO, som alltid finnes på noden og ikke skannes.
+    const skann = KBSKANN[mac.toLowerCase()];
+    const funnet = skann ? skann.i2c : null;
+    const brikker = KB_BRIKKER.filter(a => visAlle ||
+      (kart[nd] && kart[nd][a]) || a === "gpio" ||
+      (funnet && funnet.includes(a)));
+    ut += `   <span class="kb-dim">` + (
+      funnet
+        ? `noden meldte ${funnet.length ? funnet.join(", ") : "ingen I2C-brikker"}` +
+          (skann.online ? "" : " (sist sett — noden er offline nå)")
+        : `noden har ikke meldt seg — viser bare det som er bundet`) +
+      `</span>\\n`;
     brikker.forEach((a, bi) => {
       const sist = bi === brikker.length - 1;
       const gren = sist ? "└─" : "├─";
