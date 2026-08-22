@@ -142,3 +142,17 @@
    er lovlig og markeres ikke — én knapp kan betjene flere funksjoner. */
 td.pc.portfeil select { border-color:var(--warn); color:var(--warn); }
 .radfeil { color:var(--warn); font-weight:600; }
+
+/* Fiendtlighetsmatrisen. Utledet av togveitabellen med masterens egen
+   regel — den skal leses som et rutenett, så her er tabellrammene
+   riktige (i motsetning til objektlisten, som er et tre). */
+table.matrise { width:auto; border-collapse:collapse;
+                font-family:ui-monospace, Menlo, monospace;
+                font-size:12px; }
+table.matrise th, table.matrise td {
+  border:1px solid var(--line); padding:3px 7px; text-align:center; }
+table.matrise th { color:var(--acc); font-size:11px;
+                   text-transform:none; letter-spacing:0; }
+td.m-fiendtlig { color:var(--warn); font-weight:700; cursor:help; }
+td.m-selv { color:#3d4854; }
+td.m-ok { background:#16241a; }

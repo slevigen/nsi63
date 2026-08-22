@@ -2274,6 +2274,51 @@ function frKrav() {
     mangler.push("en veksel");
   return mangler;
 }
+// ---- fiendtlighetsmatrise ----
+// Speiler masterens fiendtlige() NØYAKTIG: samme startsignal, delt
+// sporfelt, eller samme veksel krevd i ULIK stilling. Samme veksel i
+// samme stilling er IKKE fiendtlig — begge togveier vil det samme.
+// Matrisen er utledet av tabellen, ikke konfigurert; den viser hva
+// forriglingen faktisk vil avvise, ikke hva noen har skrevet ned.
+function frFiendtlig(a, b) {
+  const grunner = [];
+  if (a.start && a.start === b.start)
+    grunner.push("samme startsignal " + a.start);
+  const felles = (a.frie || []).filter(f => (b.frie || []).includes(f));
+  if (felles.length) grunner.push("deler sporfelt " + felles.join(", "));
+  for (const va of a.sporveksler || [])
+    for (const vb of b.sporveksler || [])
+      if (va.sporveksel === vb.sporveksel && va.stilling !== vb.stilling)
+        grunner.push("veksel " + va.sporveksel + ": " +
+                     va.stilling + " mot " + vb.stilling);
+  return grunner;
+}
+function frMatrise() {
+  const el = document.getElementById("fr-matrise");
+  if (!el) return;
+  const tv = TOGVEIER.filter(t => t.id);
+  if (tv.length < 2) {
+    el.innerHTML = '<span class="hint">trenger minst to togveier</span>';
+    return;
+  }
+  let h = '<table class="matrise"><thead><tr><th></th>';
+  for (const b of tv) h += `<th>${attr(b.id)}</th>`;
+  h += "</tr></thead><tbody>";
+  for (const a of tv) {
+    h += `<tr><th>${attr(a.id)}</th>`;
+    for (const b of tv) {
+      if (a === b) { h += '<td class="m-selv">·</td>'; continue; }
+      const g = frFiendtlig(a, b);
+      h += g.length
+        ? `<td class="m-fiendtlig" title="${attr(g.join(" · "))}">✕</td>`
+        : '<td class="m-ok"></td>';
+    }
+    h += "</tr>";
+  }
+  el.innerHTML = h + "</tbody></table>" +
+    '<p class="hint">✕ = kan ikke stå samtidig. Hold over for ' +
+    'begrunnelsen. Tomt felt = forenlige.</p>';
+}
 function frRender() {
   // Normalisering per rad: migrer eldre rader til fra/til, avled
   // spor og startsignal av endene, og fyll tomme felt-lister.
@@ -2392,6 +2437,7 @@ function frRender() {
       : `<p class="hint">Ingen togveier ennå — trykk «+ Ny togvei».</p>`);
   frSkisse();
   frKonflikter();
+  frMatrise();   // til slutt: id-er kan være utledet underveis
 }
 // ---- skjematisk skisse avledet av togveitabellen ----
 // Én linje per togspor: venstre ende, innkjør-/utkjørsignaler,
