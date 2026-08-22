@@ -59,6 +59,7 @@ MAX_SKIFT_VEKSLER = 4     # kMaxSkiftVeksler
 MAX_TOGVEIER      = 32    # kMaxTogveier
 MAX_TV_VEKSLER    = 6     # kMaxTvVeksler
 MAX_TV_FELT       = 8     # kMaxTvFelt
+MAX_TV_LAASER     = 3     # kMaxTvLaaser
 # PubSubClient-bufferen i master (setBufferSize). HELE MQTT-pakken må
 # få plass — nyttelast + tema + header — ellers forkaster biblioteket
 # meldingen i STILLHET: callbacket kjører aldri, master beholder
@@ -433,6 +434,41 @@ def publish_config(data: dict):
 
 
 # ---------- hal.json ----------
+
+def migrate_forrigling(data: dict, functions: list) -> dict:
+    """Løft togveitabellen til gjeldende form.
+
+    En håndstilt veksel sto tidligere i togveiens vekselliste. Den kan
+    ikke kommanderes, og forriglingen kan derfor bare KREVE at den
+    ligger riktig — noe kontrollåsen er garantien for. Oppføringen
+    flyttes til togveiens «laaser»: låsen som omfatter vekselen må
+    være sperret. Er vekselen ikke omfattet av noen lås, finnes ingen
+    garanti, og oppføringen fjernes (valideringen sier fra).
+    """
+    manuelle = {f.get("id") for f in functions
+                if f.get("type") == "manuellveksel"}
+    if not manuelle:
+        return data
+    eier = {}          # objekt-litra -> låsegruppe som omfatter det
+    for f in functions:
+        if f.get("type") in ("samlelaas", "rigel"):
+            for o in f.get("omfatter") or []:
+                eier.setdefault(o, f.get("id"))
+    for tv in data.get("togveier", []):
+        beholdt, laaser = [], list(tv.get("laaser") or [])
+        for v in tv.get("sporveksler") or []:
+            lit = v.get("sporveksel")
+            if lit not in manuelle:
+                beholdt.append(v)
+                continue
+            lg = eier.get(lit)
+            if lg and lg not in laaser:
+                laaser.append(lg)
+        tv["sporveksler"] = beholdt
+        if laaser:
+            tv["laaser"] = laaser
+    return data
+
 
 def migrate(data: dict) -> dict:
     """Løft eldre formater til gjeldende."""
@@ -1137,10 +1173,6 @@ def _kapasitet_feil(functions, signaltyper=None):
         if len(omf) > MAX_SKIFT_VEKSLER:
             feil.append(f"{fid}: {len(omf)} objekter i samlelåsen — "
                         f"maks {MAX_SKIFT_VEKSLER}")
-        spr = f.get("sperrer") or []
-        if len(spr) > 2:
-            feil.append(f"{fid}: {len(spr)} sperrer-linjefelt — maks 2 "
-                        f"(tomt = hele stasjonen)")
     return feil
 
 
@@ -1226,8 +1258,6 @@ def _topologi_feil(functions):
         # utenfor systemet. Anlegget ser da bare låsen, som forbildet
         # (kontrollåskjeden er mekanisk og usynlig). Tegnene må
         # likevel være trygge: litraen vises i panelet og UI-et.
-        # sperrer-avgrensningen må derimot peke på virkelige
-        # linjefelt — den styr forriglingen direkte.
         for v in f.get("omfatter") or []:
             if v in veksler or v in sperrer_ids:
                 continue
@@ -1236,10 +1266,6 @@ def _topologi_feil(functions):
                 feil.append(f"{f.get('type')} {f.get('id')}: objektet "
                             f"«{v}» utenfor anlegget har ulovlig tegn "
                             f"'{tegn}'")
-        for lf in f.get("sperrer") or []:
-            if lf not in linjefelt:
-                feil.append(f"{f.get('type')} {f.get('id')} sperrer "
-                            f"ukjent linjefelt {lf}")
     # Sporplan-topologien (portmodellen): referansene må finnes —
     # sporfelt-litra, eller «veksel N» for kjeder. Kun tegnefelt,
     # men en død referanse gir hull i planen.
@@ -1518,6 +1544,10 @@ def load_forrigling() -> dict:
             tv["signalfall"] = arr[0] if arr else ""
             tv["utlosningsfelt"] = arr[1] if len(arr) > 1 else \
                 (arr[0] if arr else "")
+    # Håndstilte veksler ut av veksellisten, over i låsekravet. Krever
+    # HAL-en, som sier hvilke veksler som er manuelle og hvilken lås
+    # som omfatter dem.
+    migrate_forrigling(data, load_hal().get("functions", []))
     return data
 
 
@@ -1584,6 +1614,16 @@ def api_forrigling_save():
                                          f"er ikke en sporveksel i HAL"}), 400
             if v.get("stilling") not in ("normal", "avvik"):
                 return jsonify({"error": f"{tid}: ugyldig stilling"}), 400
+        laasgrupper = {f["id"] for f in fns
+                       if f.get("type") in ("samlelaas", "rigel")}
+        laaser = tv.get("laaser") or []
+        if len(laaser) > MAX_TV_LAASER:
+            return jsonify({"error": f"{tid}: {len(laaser)} låsegrupper — "
+                                     f"maks {MAX_TV_LAASER}"}), 400
+        for lg in laaser:
+            if lg not in laasgrupper:
+                return jsonify({"error": f"{tid}: '{lg}' er ikke en "
+                                         f"samlelås eller rigel i HAL"}), 400
         felt_refs = list(tv.get("frie", [])) + \
             [tv.get("utlosningsfelt")]
         for sf in felt_refs:
@@ -2671,8 +2711,7 @@ function decorateRow(tr) {
       `value="${attr(utenforAnlegget(tr).join(", "))}" ` +
       `placeholder="f.eks. V12" ` +
       `title="Objekter låsen omfatter som IKKE er definert i anlegget: helt manuelle veksler/sperrer, eller slike som drives elektrisk av eget utstyr utenfor systemet. Anlegget ser da bare låsen — at objektene ligger riktig før sperring er operatørens ansvar, som med kontrollåsnøklene i forbildet. Kommaseparert liste; vises i panelet."><br>` +
-      `<span class="hint" title="Avgrens togvei-kravet til togveier til/fra bestemte linjefelt (maks 2) — apparatnøkkel-varianten (Sokna: nøkkelen i apparatet sperret bare togveiene til/fra A). TOMT = hele stasjonen, som er forbildets hovedregel.">sperrer:</span> ` +
-      sperrerBoks(tr);
+      `<span class="hint" title="Hvilke togveier låsen sperrer står i TOGVEITABELLEN: hver togvei lister låsegruppene den krever sperret. Én kilde — låsen sier hva den holder, togveien sier hva den trenger.">togvei-kravet settes i forriglingstabellen</span>`;
   } else if (isSperre(t)) {
     extraCell.innerHTML =
       `<span class="hint" title="Sporsperre: normalstillingen er PÅLAGT — det er dekningen togveiene krever. Deler vekselmaskineriet: valgfrie drivutganger for motordrevet modellsperre, valgfrie sensorer (pålagt-kontroll — uten dem antas stillingen), lokal stiller. Omlegging gates av samlelås/rigel som eier sperren. Symbol på planen: skråstrek over sporet.">normalstilling pålagt (dekning)</span>` +
@@ -2755,11 +2794,10 @@ function addRow(f, foerEl) {
   tr.dataset.hakk = (f.hakk_hz !== undefined) ? String(f.hakk_hz) : "";
   tr.dataset.duty = (f.hakk_duty !== undefined) ? String(f.hakk_duty) : "";
   // Samlelåsens «omfatter» gjenbruker skiftv-sporet (samme form, og
-  // et objekt er aldri både skiftesignal og samlelås); «sperrer» og
-  // «navn» er samlelåsens egne.
+  // et objekt er aldri både skiftesignal og samlelås); «navn» er
+  // låsegruppens eget.
   tr.dataset.skiftv = JSON.stringify(f.skift_sporveksler ||
                                      f.omfatter || []);
-  tr.dataset.sperrer = JSON.stringify(f.sperrer || []);
   tr.dataset.navn = f.navn || "";
   // Sporplan-topologien (kun tegning; master ignorerer feltene)
   tr.dataset.spiss = f.spiss || "";
@@ -2977,25 +3015,6 @@ function skiftVekselBoks(tr, gruppe) {
   return `<span class="hint">${gruppe
     ? "ingen veksler eller sporsperrer definert"
     : "ingen sentralstilte veksler definert"}</span>`;
-}
-// Linjefelt-velger for samlelåsens sperrer-avgrensning (maks 2 —
-// masterens tabellgrense). Leser rolle fra select-en når raden er
-// dekorert, ellers fra datasettet (radene dekoreres i rekkefølge).
-function sperrerBoks(tr) {
-  const valgt = new Set(JSON.parse(tr.dataset.sperrer || "[]"));
-  let out = "";
-  for (const r of document.querySelectorAll("#tbl tbody tr.fnrow")) {
-    if (r.querySelector(".f-type").value !== "sporfelt") continue;
-    const rsel = r.querySelector(".f-rolle");
-    const rolle = rsel ? rsel.value : (r.dataset.rolle || "");
-    if (rolle !== "linjefelt") continue;
-    const id = r.querySelector(".f-id").value.trim();
-    if (!id) continue;
-    out += `<label style="margin-right:6px;white-space:nowrap">` +
-           `<input type="checkbox" class="f-sperrer" value="${attr(id)}" ` +
-           `${valgt.has(id) ? "checked" : ""}> ${id}</label>`;
-  }
-  return out || `<span class="hint">(ingen linjefelt = hele stasjonen)</span>`;
 }
 // Omfatter-litra som IKKE finnes som objekt i tabellen: objekter
 // utenfor anlegget (helt manuelle / drevet av eget utstyr). De har
@@ -3238,20 +3257,11 @@ function collect() {
       const v2 = e2 ? e2.value : tr.dataset[ds];
       if (v2) fn[felt] = v2;
     }
-    // Låsegruppenes navn og sperrer-avgrensning — samme fall-tilbake-
-    // prinsipp: en udekoreret rad skal aldri slette verdier i stillhet
+    // Låsegruppens navn — samme fall-tilbake-prinsipp: en udekoreret
+    // rad skal aldri slette verdier i stillhet
     const nv = tr.querySelector(".f-navn");
     if (nv) { if (nv.value.trim()) fn.navn = nv.value.trim(); }
     else if (tr.dataset.navn) fn.navn = tr.dataset.navn;
-    if (tr.querySelector(".f-sperrer") ||
-        (isLaas(t) && tr.querySelector(".f-navn"))) {
-      const sp = [...tr.querySelectorAll(".f-sperrer:checked")]
-               .map(c => c.value);
-      if (sp.length) fn.sperrer = sp;
-    } else {
-      const lagretSp = JSON.parse(tr.dataset.sperrer || "[]");
-      if (lagretSp.length) fn.sperrer = lagretSp;
-    }
     out.push(fn);
   }
   return out;
@@ -4170,6 +4180,7 @@ function frRender() {
   const hoved = frLitraer(TYPES.filter(erHoved));
   const veksler = frLitraer(["sporveksel"]);   // manuellveksel: se validering
   const felt = frLitraer(["sporfelt"]);
+  const laasgrupper = frLitraer(["samlelaas", "rigel"]);
   let html = "";
   TOGVEIER.forEach((tv, i) => {
     const gid = frGenId(tv) || tv.id || "";
@@ -4218,6 +4229,15 @@ function frRender() {
         `<span>${sf} <button class="row-del" onclick="TOGVEIER[${i}].frie.splice(${j},1);frRender()">✕</button></span>`).join("") +
       `<select style="max-width:130px" onchange="if(this.value){(TOGVEIER[${i}].frie=TOGVEIER[${i}].frie||[]).push(this.value);frRender()}">
         ${frSel(felt.filter(f=>!(tv.frie||[]).includes(f)), "", true)}</select>
+      </div>
+      <div class="bar" style="margin:4px 0">
+        <span class="hint" style="min-width:90px"
+              title="Låsegrupper (samlelås/rigel) som må være SPERRET for at togveien kan sikres. Slik kommer en håndstilt veksel inn i forriglingen: anlegget kan ikke kaste den, men låsen som holder den garanterer stillingen — og DEN kan anlegget kreve. Samme relasjon leses motsatt vei: låsen kan ikke frigis mens denne togveien er forriglet.">Krever låst:</span>` +
+      (tv.laaser||[]).map((lg, j) =>
+        `<span>${lg} <button class="row-del" onclick="TOGVEIER[${i}].laaser.splice(${j},1);frRender()">✕</button></span>`).join("") +
+      `<select style="max-width:130px" onchange="if(this.value){(TOGVEIER[${i}].laaser=TOGVEIER[${i}].laaser||[]).push(this.value);frRender()}">
+        ${frSel(laasgrupper.filter(l=>!(tv.laaser||[]).includes(l)), "", true)}</select>
+        <span class="hint">tomt = togveien er uavhengig av låsegruppene</span>
       </div>
       <div class="bar" style="margin:4px 0">
         <span class="hint" style="min-width:90px">Utløsningsfelt:</span>
