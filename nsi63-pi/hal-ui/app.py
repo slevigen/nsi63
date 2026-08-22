@@ -2169,6 +2169,13 @@ PAGE = """<!doctype html>
   .sk-mf { color:#4dd0c4; }   /* varselfelt */
   .sk-vx { color:#ffa657; }   /* veksel */
   .grphead b { color:var(--acc); }
+  /* Kolonnetekst per gruppe: hva «Binding» og «Panel» ER her. Samme
+     retningsfarger som radene under, så det leses som ett system. */
+  .grpkol { font-size:11px; font-weight:400; text-transform:none;
+            letter-spacing:0; opacity:.85; }
+  /* Kolonnen er deaktivert for denne gruppen — ingen pil, ingen
+     farge, så teksten ikke inviterer til et valg som ikke finnes. */
+  .grpkol.dim { color:var(--dim); opacity:.55; }
   .grp-pil { display:inline-block; width:14px; color:var(--acc); }
   .sub-label { color:var(--dim); font-size:12px; text-align:right; }
   /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
@@ -2337,24 +2344,48 @@ const TYPES = ["hovedsignal3","hovedsignal2","forsignal2",
                "samlelaas","rigel"];
 // Grupper i HAL-tabellen: objektene som inngår i forriglingen først,
 // alt annet samlet nederst. Typevalget på raden begrenses til gruppen.
+// Gruppene er HOMOGENE med vilje: alle typer i en gruppe har samme
+// hovedbinding (roller(t)[0]). Det er forutsetningen for at
+// kolonneteksten i gruppeoverskriften kan stemme — «bind» og «panel»
+// under sier hva de to kolonnepar ene ER for nettopp denne gruppen.
+// Tom «panel» = kolonnen er ikke i bruk her (feltene er deaktivert).
 const GRUPPER = [
   {navn: "Signaler",    typer: ["hovedsignal3","hovedsignal2",
                                 "forsignal2",
                                 "skiftesignal2","skiftesignal1",
-                                "dvergsignal3"]},
-  {navn: "Sporveksler", typer: ["sporveksel","manuellveksel"]},
+                                "dvergsignal3"],
+   bind: "signallampene ute (førsteport)",
+   panel: "kontrollamper på apparatet"},
+  {navn: "Sporveksler", typer: ["sporveksel","manuellveksel"],
+   bind: "drivutgang normal",
+   panel: "(ubrukt — kontrollamper ligger på egne rader)"},
+  {navn: "Sporfelt",    typer: ["sporfelt"],
+   bind: "sporfeltsensor",
+   panel: "kontrollampe på apparatet"},
+  {navn: "Trykknapper og brytere", typer: ["trykknapp","bryter"],
+   bind: "knappen/bryteren",
+   panel: "kontrollampe på apparatet"},
   // Sporsperren er en egen ting: normalstillingen er PÅLAGT, den har
-  // ingen ende, ingen Lok-frigivning og nesten ingen av vekselens
-  // portkonfigurasjon. Egen gruppe, egne ord.
-  {navn: "Sporsperrer", typer: ["sporsperre"]},
-  {navn: "Sporfelt",    typer: ["sporfelt"]},
-  {navn: "Trykknapper og brytere", typer: ["trykknapp","bryter"]},
+  // ingen ende og ingen Lok-frigivning. Den står her nede fordi det
+  // er låsene som frigir den — men i EGEN gruppe, siden hovedbindingen
+  // (ut-paalagt) er en annen enn låsenes (anlegg).
+  {navn: "Sporsperrer", typer: ["sporsperre"],
+   bind: "drivutgang pålagt",
+   panel: "(ubrukt — kontrollampen ligger på egen rad)"},
+  {navn: "Låser",       typer: ["samlelaas","rigel"],
+   bind: "frigittlampe ved låsen",
+   panel: "kontrollampe på apparatet"},
   // «utgang» og «inngang» er RENE bindingsholdere: master har ingen
   // logikk for dem, så de driver ingenting av seg selv. De er nyttige
   // for å reservere porter og dokumentere kabling — men en port bundet
   // til «utgang» teller mot nodens 40-tak uten noen gang å bli satt.
-  {navn: "Annet",       typer: ["utgang","klokke","inngang",
-                                "amperemeter","samlelaas","rigel"]},
+  {navn: "Annet",       typer: ["utgang","inngang","klokke",
+                                "amperemeter"],
+   // Eneste gruppe som blander retning: «utgang» reserverer en
+   // utgangsport, «inngang» en inngangsport. Teksten står derfor uten
+   // pil — radene under er merket hver for seg.
+   bind: "porten som reserveres (retning følger typen)",
+   bindNoytral: true, panel: ""},
 ];
 const COLLAPSED = new Set();   // sammenlagte grupper (per sidevisning)
 function gruppeIdx(type) {
@@ -2492,10 +2523,13 @@ function nodeChanged(sel, prefix) {
 }
 // sted: hva slotten er FOR — brukes bare til fargemerking, så det
 // synes hvor det skal velges en inngang og hvor en utgang.
-function bindCells(prefix, b, defI2c, sted) {
+// innOverstyr: sett når stedsnavnet ikke avgjør retningen (typene
+// «inngang»/«utgang», som begge bruker stedet «anlegg»).
+function bindCells(prefix, b, defI2c, sted, innOverstyr) {
   // Alle bindinger starter på "—" (ingen) — bare bevisste valg lagres
   const i2cVal = b.i2c || defI2c;
-  const kls = sted ? (erInngang(sted) ? " retn-inn" : " retn-ut") : "";
+  const inn = innOverstyr === undefined ? erInngang(sted) : innOverstyr;
+  const kls = sted ? (inn ? " retn-inn" : " retn-ut") : "";
   return `
     <td><select class="${prefix}-node" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
     <td class="i2c${kls}"><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
@@ -2509,6 +2543,14 @@ function bindCells(prefix, b, defI2c, sted) {
 function erInngang(sted) {
   return sted.startsWith("sensor") || sted.startsWith("stiller") ||
          sted.startsWith("lokal-") || sted === "kvittering";
+}
+// Retningen på HOVEDRADENS binding. «inngang» og «utgang» er rene
+// bindingsholdere som begge bruker stedet «anlegg» — der er det TYPEN
+// som sier hva porten er, ikke stedsnavnet.
+function hovedErInngang(t) {
+  if (t === "inngang") return true;
+  if (t === "utgang") return false;
+  return erInngang(roller(t)[0]);
 }
 function defaultI2c(sted) {
   if (erInngang(sted)) return "0x20";   // PCF8574
@@ -2814,7 +2856,9 @@ function addRow(f, foerEl) {
            : [t].concat(GRUPPER[gruppeIdx(t)].typer))
           .map(x=>opt(x,x,t)).join("")}</select></td>
     <td class="hint f-extra"></td>
-    ${bindCells("a", main, defaultI2c(r[0]), r[0])}
+    ${bindCells("a", main,
+                hovedErInngang(t) ? "0x20" : defaultI2c(r[0]),
+                r[0], hovedErInngang(t))}
     ${bindCells("p", panel, "0x40", "panel")}
     <td><input class="f-notes" value="${attr(f.notes)}"></td>
     <td><button class="row-del" onclick="delFn(this)">✕</button></td>`;
@@ -2835,12 +2879,26 @@ function grpHeaderRow(gi) {
   const tr = document.createElement("tr");
   tr.className = "grphead";
   tr.dataset.grp = gi;
-  tr.innerHTML = `<td colspan="11">
+  // Kolonneteksten hører hjemme HER, ikke i tabellhodet: hva
+  // «Binding» og «Panel» er, avhenger av objekttypen, og innenfor en
+  // gruppe er den lik for alle rader. Cellene flukter med de to
+  // kolonneparene, så teksten står rett over feltene den gjelder.
+  const G = GRUPPER[gi];
+  const kap = (tekst, ut) => !tekst ? `<td colspan="3"></td>`
+    : `<td colspan="3" class="grpkol ${ut ? "retn-ut" : "retn-inn"}">` +
+      `${ut ? tekst + " &rarr;" : "&larr; " + tekst}</td>`;
+  tr.innerHTML = `<td colspan="3">
     <span style="cursor:pointer" onclick="grpToggle(${gi})">
-      <span class="grp-pil">▾</span> <b>${GRUPPER[gi].navn}</b>
+      <span class="grp-pil">▾</span> <b>${G.navn}</b>
       <span class="hint grp-tall"></span></span>
     <button class="mini" style="margin-left:10px"
-            onclick="grpAdd(${gi})">+ ny</button></td>`;
+            onclick="grpAdd(${gi})">+ ny</button></td>
+    ${G.bindNoytral ? `<td colspan="3" class="grpkol">${G.bind}</td>`
+                    : kap(G.bind, !hovedErInngang(G.typer[0]))}
+    ${panelOk(G.typer[0])
+        ? kap(G.panel, true)
+        : `<td colspan="3" class="grpkol dim">${G.panel}</td>`}
+    <td colspan="2"></td>`;
   return tr;
 }
 function grpHeader(gi) {
