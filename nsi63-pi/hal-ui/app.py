@@ -225,8 +225,8 @@ def litra_ns(t, signaltyper=None):
     k = sig_klasse(t, signaltyper)
     if k:
         return k   # hovedsignal/forsignal/skiftesignal/dvergsignal
-    if t in ("sporveksel", "sporveksel-lokal"):
-        return "sporveksel"
+    if t in ("sporveksel", "manuellveksel"):
+        return "sporveksel"   # samme flate; forriglingen skiller dem
     if t == "sporfelt":
         return "sporfelt"
     if t in ("trykknapp", "bryter"):
@@ -439,6 +439,19 @@ def migrate(data: dict) -> dict:
     for f in data.get("functions", []):
         if f.get("type") in ("buzzer", "surre"):   # eldre navn (v5/v7)
             f["type"] = "klokke"
+        # «sporveksel-lokal» delte prefiks med den sentralstilte, og
+        # master dro den dermed med inn i togveier, skifteområder og
+        # Lok-frigivning der den ikke hører hjemme. Nytt navn uten
+        # prefiks tvinger eksplisitt håndtering.
+        if f.get("type") == "sporveksel-lokal":
+            f["type"] = "manuellveksel"
+        # Den gamle enkeltinngangen var nivåstyrt med LAV = avvik —
+        # nøyaktig det «stiller-avvik» alene betyr nå.
+        for b in f.get("bindinger") or []:
+            if (b.get("sted") == "stiller"
+                    and f.get("type") in ("sporveksel", "manuellveksel",
+                                          "sporsperre")):
+                b["sted"] = "stiller-avvik"
         if f.get("type") == "klokke" and f.get("rolle") == "sporvekselklokke":
             f.pop("rolle")   # rolledelt klokke utgått: én klokke gjør alt
         if "bindinger" not in f:
@@ -1167,7 +1180,7 @@ def _topologi_feil(functions):
     # flagget før knappen er koblet.
     # Skiftesignalets område må peke på veksler som finnes
     veksler = {f.get("id") for f in functions
-               if str(f.get("type", "")).startswith("sporveksel")}
+               if f.get("type") in ("sporveksel", "manuellveksel")}
     sentralstilte = {f.get("id") for f in functions
                      if f.get("type") == "sporveksel"}
     sperrer_ids = {f.get("id") for f in functions
@@ -1184,10 +1197,10 @@ def _topologi_feil(functions):
                 # kontroll og blir stående V_UKJENT — tas den med,
                 # låses signalet i 41 for alltid. Stille i drift,
                 # derfor avvist her.
-                feil.append(f"skiftesignal {f.get('id')}: sporveksel {v} "
-                            f"er lokalstilt — et høyt skiftesignal "
-                            f"følger bare sentralstilte veksler, og "
-                            f"ville blitt stående i «skifting forbudt»")
+                feil.append(f"skiftesignal {f.get('id')}: {v} er en "
+                            f"manuellveksel — et høyt skiftesignal følger "
+                            f"bare sentralstilte veksler, og ville blitt "
+                            f"stående i «skifting forbudt»")
         # Låsegruppenes virkeområde (samlelås/rigel): et omfatter-
         # litra UTEN objekt i anlegget er LOV — det er en helt manuell
         # veksel/sperre, eller en som drives av kundens eget utstyr
@@ -1515,8 +1528,7 @@ def api_forrigling_save():
     st_map = hal.get("signaltyper", {})
     hoved = {f["id"]: f for f in fns
              if sig_klasse(f.get("type", ""), st_map) == "hovedsignal"}
-    vx = {f["id"]: f for f in fns
-          if f.get("type") in ("sporveksel", "sporveksel-lokal")}
+    vx = {f["id"]: f for f in fns if f.get("type") == "sporveksel"}
     felt = {f["id"]: f for f in fns if f.get("type") == "sporfelt"}
     seen = set()
     for tv in togveier:
@@ -1538,6 +1550,17 @@ def api_forrigling_save():
                                      f"et hovedsignal i HAL"}), 400
         for v in tv.get("sporveksler", []):
             if v.get("sporveksel") not in vx:
+                # Egen begrunnelse for manuellveksel: forriglingen kan
+                # ikke kaste en håndstilt veksel, og den melder aldri
+                # kontroll. Sikringen skjer med samlelås eller rigel.
+                manuell = any(f.get("id") == v.get("sporveksel")
+                              and f.get("type") == "manuellveksel"
+                              for f in fns)
+                if manuell:
+                    return jsonify({"error":
+                        f"{tid}: '{v.get('sporveksel')}' er en "
+                        f"manuellveksel og kan ikke inngå i en togvei — "
+                        f"sikre den med samlelås eller rigel i stedet"}), 400
                 return jsonify({"error": f"{tid}: '{v.get('sporveksel')}' "
                                          f"er ikke en sporveksel i HAL"}), 400
             if v.get("stilling") not in ("normal", "avvik"):
@@ -2228,7 +2251,7 @@ const erHoved = t => sigKlasse(t) === "hovedsignal";
 const TYPES = ["hovedsignal3","hovedsignal2","forsignal2",
                "skiftesignal2","skiftesignal1",
                "dvergsignal3",
-               "sporveksel","sporveksel-lokal","sporsperre",
+               "sporveksel","manuellveksel","sporsperre",
                "utgang","klokke",
                "sporfelt","bryter","trykknapp","inngang","amperemeter",
                "samlelaas","rigel"];
@@ -2239,8 +2262,11 @@ const GRUPPER = [
                                 "forsignal2",
                                 "skiftesignal2","skiftesignal1",
                                 "dvergsignal3"]},
-  {navn: "Sporveksler", typer: ["sporveksel","sporveksel-lokal",
-                                "sporsperre"]},
+  {navn: "Sporveksler", typer: ["sporveksel","manuellveksel"]},
+  // Sporsperren er en egen ting: normalstillingen er PÅLAGT, den har
+  // ingen ende, ingen Lok-frigivning og nesten ingen av vekselens
+  // portkonfigurasjon. Egen gruppe, egne ord.
+  {navn: "Sporsperrer", typer: ["sporsperre"]},
   {navn: "Sporfelt",    typer: ["sporfelt"]},
   {navn: "Trykknapper og brytere", typer: ["trykknapp","bryter"]},
   // «utgang» og «inngang» er RENE bindingsholdere: master har ingen
@@ -2285,7 +2311,13 @@ function i2cOptions(nodeVal, sel) {
 let liveNodes = [];
 
 const isSignal = t => t in SIGNALTYPER;
-const isVeksel = t => t === "sporveksel" || t === "sporveksel-lokal";
+// EKSAKTE tester. «sporveksel» er sentralstilt og inngår i
+// forriglingen; «manuellveksel» er håndstilt og står utenfor — den er
+// med for å tegne panelet og for å kunne betjenes med knapp/bryter
+// over nodens porter.
+const isVeksel = t => t === "sporveksel";
+const isManuell = t => t === "manuellveksel";
+const isNoenVeksel = t => isVeksel(t) || isManuell(t);
 const isSperre = t => t === "sporsperre";   // deler vekselmaskineriet
 const isLaas = t => t === "samlelaas" || t === "rigel";
 // Via sigKlasse(), ikke oppslag i SIGNALTYPER: da arves navne-
@@ -2299,9 +2331,14 @@ const isDverg = t => sigKlasse(t) === "dvergsignal";
 const isSkift = t => sigKlasse(t) === "skiftesignal";
 // Rolle-listen per type: [0] er hovedradens binding, resten faste underrader
 function roller(t) {
-  if (isVeksel(t) || isSperre(t))
+  if (isVeksel(t))
     return ["ut-normal","ut-avvik","sensor-normal","sensor-avvik",
             "panel-normal","panel-avvik"];
+  // Manuellveksel: drivutganger om den skal kunne betjenes med
+  // knapp/bryter over noden — ingen sensorer, ingen kontrollamper.
+  if (isManuell(t)) return ["ut-normal","ut-avvik"];
+  // Sporsperre: valgfrie drivutganger og ÉN pålagt-kontroll.
+  if (isSperre(t)) return ["ut-normal","ut-avvik","sensor-normal"];
   if (t === "sporfelt") return ["sensor"];
   return ["anlegg"];
 }
@@ -2389,7 +2426,10 @@ function defaultI2c(sted) {
 }
 // sted2/b2: valgfri binding nr. 2 på samme linje, i panelkolonnene
 // (brukes av veksler: kontrollampen på stillingssensorens linje)
-function addSubRow(fnTr, sted, b, removable, sted2, b2) {
+// vis/vis2: egne etiketter der bindingsnavnet ikke er ordet brukeren
+// kjenner — sporsperren heter pålagt/avlagt, men bindingene må hete
+// det master forventer. Utelatt = bindingsnavnet brukes.
+function addSubRow(fnTr, sted, b, removable, sted2, b2, vis, vis2) {
   b = b || {};
   const del = removable
     ? '<button class="row-del" onclick="this.closest(\\'tr\\').remove()">✕</button>'
@@ -2398,7 +2438,8 @@ function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   tr.className = "subrow";
   tr.dataset.sted = sted;
   if (sted2) tr.dataset.sted2 = sted2;
-  const lbl = sted2 ? `${sted} + ${sted2} &rarr;` : `${sted} &rarr;`;
+  const e1 = vis || sted, e2 = vis2 || sted2;
+  const lbl = sted2 ? `${e1} + ${e2} &rarr;` : `${e1} &rarr;`;
   const hoyre = sted2 ? bindCells("t", b2 || {}, defaultI2c(sted2))
                       : `<td colspan="3"></td>`;
   tr.innerHTML = `
@@ -2516,19 +2557,23 @@ function decorateRow(tr) {
       opt("lok-v", "frigivning venstre ende", cur) +
       opt("lok-h", "frigivning høyre ende", cur) +
       `</select>`;
-  } else if (isVeksel(t)) {
-    // Enden UTLEDES av togveitabellen (hvilke linjefelt togveiene
-    // over vekselen når) — feltet her er bare overstyring for
-    // veksler ingen togvei berører, eller som nås fra begge sider.
+  } else if (isNoenVeksel(t)) {
+    // «ende» gjelder BARE den sentralstilte: den utledes av
+    // togveitabellen, og manuellvekselen står ikke i noen togvei.
+    // Tegnefeltene har begge — de er hele grunnen til at den
+    // manuelle er definert i det hele tatt.
     const curSide = tr.dataset.side || "";
-    const utl = utledetEnde(tr.querySelector(".f-id").value.trim());
+    const utl = isVeksel(t)
+      ? utledetEnde(tr.querySelector(".f-id").value.trim()) : "";
     extraCell.innerHTML =
-      `<span class="hint" title="Stasjonsenden utledes av forriglingstabellen: vekselen hører til den enden hvis linjefelt togveiene over den når. Sett verdi her BARE for veksler ingen togvei berører (rene skifteveksler) eller som nås fra begge sider.">ende:</span> ` +
-      `<select class="f-side">` +
-      opt("", utl ? `auto (${utl === "v" ? "venstre" : "høyre"})`
-                  : "auto (ukjent)", curSide) +
-      opt("v", "venstre (overstyrt)", curSide) +
-      opt("h", "høyre (overstyrt)", curSide) + `</select>` +
+      (isVeksel(t)
+        ? `<span class="hint" title="Stasjonsenden utledes av forriglingstabellen: vekselen hører til den enden hvis linjefelt togveiene over den når. Sett verdi her BARE for veksler ingen togvei berører (rene skifteveksler) eller som nås fra begge sider.">ende:</span> ` +
+          `<select class="f-side">` +
+          opt("", utl ? `auto (${utl === "v" ? "venstre" : "høyre"})`
+                      : "auto (ukjent)", curSide) +
+          opt("v", "venstre (overstyrt)", curSide) +
+          opt("h", "høyre (overstyrt)", curSide) + `</select>`
+        : `<span class="hint" title="Manuellvekselen står utenfor forriglingen: ingen ende, ingen togvei, ingen Lok-frigivning. Den er med for å tegne sporplanen, og kan betjenes med knapp eller bryter over nodens porter. Sikres i en togvei med samlelås eller rigel.">håndstilt — utenfor forriglingen</span>`) +
       // Sporplanens portmodell: spissen + hvor greinene fører. KUN
       // tegning — master leser ingen av feltene, så de ligger skjult
       // bak «tegning»-lenka (ikke alle vil ha et digitalt panel).
@@ -2847,8 +2892,8 @@ function skiftVekselBoks(tr, gruppe) {
   let out = "";
   for (const r of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     const rt = r.querySelector(".f-type").value;
-    const passer = gruppe ? (rt.startsWith("sporveksel") || isSperre(rt))
-                          : rt === "sporveksel";
+    const passer = gruppe ? (isNoenVeksel(rt) || isSperre(rt))
+                          : isVeksel(rt);
     if (!passer) continue;
     const id = r.querySelector(".f-id").value.trim();
     if (!id) continue;
@@ -2903,7 +2948,7 @@ function utenforAnlegget(tr) {
   const kjent = new Set();
   for (const r of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     const rt = r.querySelector(".f-type").value;
-    if (rt.startsWith("sporveksel") || isSperre(rt))
+    if (isNoenVeksel(rt) || isSperre(rt))
       kjent.add(r.querySelector(".f-id").value.trim());
   }
   return JSON.parse(tr.dataset.skiftv || "[]").filter(x => !kjent.has(x));
@@ -2924,7 +2969,7 @@ function fillTopoSel(sel) {
     const rt = r.querySelector(".f-type").value;
     const id = r.querySelector(".f-id").value.trim();
     if (!id) continue;
-    if (rt.startsWith("sporveksel"))
+    if (isNoenVeksel(rt))   // begge tegnes på sporplanen
       out += opt(`veksel ${id}`, `veksel ${id}`, cur);
   }
   if (cur && !out.includes(`value="${cur}"`))
@@ -2944,18 +2989,39 @@ function typeChanged(sel) {   // brukerbytte: bygg underrader på nytt
 // kolonnene og kontrollampen i panelkolonnene (ut-normal er hovedraden).
 function byggSubrader(tr, t, binds) {
   const finn = sted => (binds || []).find(b => b.sted === sted);
-  if (isVeksel(t) || isSperre(t)) {
+  // BETJENING: ett par innganger per betjeningssted, navngitt etter
+  // RETNING. Begge bundet = flankestyrt (to trykknapper ELLER en
+  // vippebryter). Bare én bundet = enpolet bryter, lest på nivå.
+  // Ingen modus å velge — koblingen forteller selv hva den er.
+  if (isVeksel(t)) {
     addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "stiller", finn("stiller"));
+              "stiller-normal", finn("stiller-normal"));
+    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false,
+              "lokal-normal", finn("lokal-normal"));
+    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false,
+              "lokalstillerlampe", finn("lokalstillerlampe"));
     addSubRow(tr, "sensor-normal", finn("sensor-normal"), false,
               "panel-normal", finn("panel-normal"));
     addSubRow(tr, "sensor-avvik", finn("sensor-avvik"), false,
               "panel-avvik", finn("panel-avvik"));
-    // lampe ute ved vekselen: tent når vekselen er frigitt for
-    // lokal omlegging (Lok-frigivning) — gjelder ikke sporsperren,
-    // som frigis av samlelås/rigel, ikke av Lok-bryterne
-    if (isVeksel(t))
-      addSubRow(tr, "lokalstillerlampe", finn("lokalstillerlampe"), false);
+    return;
+  }
+  if (isManuell(t)) {
+    // Ett betjeningssted, ingen Lok-frigivning å skille på.
+    addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
+              "stiller-normal", finn("stiller-normal"));
+    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false);
+    return;
+  }
+  if (isSperre(t)) {
+    // Sperrens språk: normalstillingen ER pålagt. Bindingsnavnene er
+    // protokoll mot master og står — bare etikettene er sperrens.
+    addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
+              "stiller-normal", finn("stiller-normal"),
+              "ut-avlagt", "betjening pålagt");
+    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false,
+              "sensor-normal", finn("sensor-normal"),
+              "betjening avlagt", "sensor pålagt");
     return;
   }
   if (isSkift(t)) {   // betjeningsbryter på apparatet
@@ -3238,7 +3304,7 @@ async function loadAll() {
   // leser linjefeltenes side fra sporfelt-gruppen lenger ned.
   for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     const t = tr.querySelector(".f-type").value;
-    if (isSkift(t) || isVeksel(t)) decorateRow(tr);
+    if (isSkift(t) || isNoenVeksel(t) || isSperre(t)) decorateRow(tr);
   }
   grpOppdater();
 }
@@ -4019,7 +4085,7 @@ function frKrav() {
                                   f.rolle === "togspor").length;
   if (nSpor < 2)
     mangler.push(nSpor ? "ett togspor til (minst to)" : "to togspor");
-  if (!HALFN.some(f => f.type === "sporveksel" || f.type === "sporveksel-lokal"))
+  if (!HALFN.some(f => f.type === "sporveksel"))
     mangler.push("en veksel");
   return mangler;
 }
@@ -4045,7 +4111,7 @@ function frRender() {
     }
   });
   const hoved = frLitraer(TYPES.filter(erHoved));
-  const veksler = frLitraer(["sporveksel", "sporveksel-lokal"]);
+  const veksler = frLitraer(["sporveksel"]);   // manuellveksel: se validering
   const felt = frLitraer(["sporfelt"]);
   let html = "";
   TOGVEIER.forEach((tv, i) => {
@@ -4401,7 +4467,7 @@ function frSkisse() {
       tokKart.push([f.id, "sk-lf"]);
     } else if (f.type === "sporfelt" && f.rolle === "varselfelt") {
       tokKart.push([f.id, "sk-mf"]);
-    } else if (f.type === "sporveksel" || f.type === "sporveksel-lokal") {
+    } else if (isNoenVeksel(f.type)) {
       tokKart.push([f.id + "n", "sk-vx"], [f.id + "a", "sk-vx"]);
     }
   });
