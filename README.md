@@ -13,11 +13,13 @@ ferdige binærer under [Releases](../../releases).
 ## Slik henger det sammen
 
 ```
-stillerapparat/anlegg ── I2C ── ESP32-NODER (dum fellesfirmware)
-                                    │  ESP-NOW (kontrollplan)
-                                ESP32-MASTER (all sikkerhetslogikk)
-                                    │  wifi/MQTT (adminplan)
-                                RASPBERRY PI (AP, broker, web-UI)
+stillerapparat/anlegg ─ I2C + GPIO ─ ESP32-NODER (dumme, tilstandsløse)
+                                       │  ESP-NOW (kontrollplan)
+                                   ESP32-MASTER (all sikkerhetslogikk)
+                                       │  wifi/MQTT (adminplan)
+                                   RASPBERRY PI (AP, broker, web-UI)
+
+Master og noder kjører SAMME binær — rollen velges med knappegest.
 ```
 
 **Nodene** er utskiftbare og identiske — identiteten er MAC-adressen,
