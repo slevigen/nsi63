@@ -132,6 +132,12 @@
 /* ---------- tilstand ---------- */
 const ROT = "nsi63/";
 const K = { hal: null, fr: null, anlegg: null };   // konfigene
+// Begge vekseltypene. «sporveksel» er sentralstilt og inngår i
+// forriglingen; «manuellveksel» er håndstilt og står utenfor — men
+// panelet TEGNER og betjener begge, og de deler MQTT-rotnavnet
+// nsi63/sporveksel/<litra>/…. Det er forriglingen de skilles i, ikke
+// flaten.
+const erVeksel = t => t === "sporveksel" || t === "manuellveksel";
 const TIL = {};        // tema (uten rot) -> siste payload
 const BIND = {};       // tema -> [oppdateringsfunksjoner]
 let bygget = false;
@@ -202,7 +208,7 @@ function bygg() {
     (st[type] && st[type].signalnr && st[type].signalnr[bilde])
       ? st[type].signalnr[bilde] + " " : "";
 
-  const veksler = fns.filter(f => String(f.type).startsWith("sporveksel"));
+  const veksler = fns.filter(f => erVeksel(f.type));
   const sperrer = fns.filter(f => f.type === "sporsperre");
   const laaser = fns.filter(f => f.type === "samlelaas");
   const rigler = fns.filter(f => f.type === "rigel");
@@ -813,7 +819,7 @@ function byggPlan(fns) {
     : { spor: String(v) };
   const vx = {};
   for (const f of fns)
-    if (String(f.type).startsWith("sporveksel"))
+    if (erVeksel(f.type))
       vx[f.id] = { spiss: f.spiss || null, pluss: ref(f.pluss_til),
                    minus: ref(f.minus_til), stamme: ref(f.spiss_til),
                    avvikBen: f.avvik_ben || null, pos: null };
@@ -1292,8 +1298,7 @@ function byggPlan(fns) {
     // kontroll er lampene bare SLUKKET (aldri blink). Håndveksler
     // har ingen lamper — forbildet hadde ingen sensorer på dem:
     // sikringsanlegget forholder seg bare til NØKLENES status.
-    const vf = fns.find(f => f.id === litra &&
-                             String(f.type).startsWith("sporveksel"));
+    const vf = fns.find(f => f.id === litra && erVeksel(f.type));
     const harSens = vf && (vf.bindinger || []).some(b =>
       b.sted === "sensor-normal" || b.sted === "sensor-avvik");
     const harDriv = vf && (vf.bindinger || []).some(b =>
