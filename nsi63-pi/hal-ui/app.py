@@ -446,12 +446,17 @@ def migrate(data: dict) -> dict:
         if f.get("type") == "sporveksel-lokal":
             f["type"] = "manuellveksel"
         # Den gamle enkeltinngangen var nivåstyrt med LAV = avvik —
-        # nøyaktig det «stiller-avvik» alene betyr nå.
+        # nøyaktig det «-avvik» alene betyr nå. Hvilket PAR den havner
+        # i følger av hvor objektet betjenes fra: den sentralstilte
+        # hadde stilleren på apparatet, mens manuellveksel og
+        # sporsperre betjenes ute ved objektet.
         for b in f.get("bindinger") or []:
-            if (b.get("sted") == "stiller"
-                    and f.get("type") in ("sporveksel", "manuellveksel",
-                                          "sporsperre")):
+            if b.get("sted") != "stiller":
+                continue
+            if f.get("type") == "sporveksel":
                 b["sted"] = "stiller-avvik"
+            elif f.get("type") in ("manuellveksel", "sporsperre"):
+                b["sted"] = "lokal-avvik"
         if f.get("type") == "klokke" and f.get("rolle") == "sporvekselklokke":
             f.pop("rolle")   # rolledelt klokke utgått: én klokke gjør alt
         if "bindinger" not in f:
@@ -3006,20 +3011,22 @@ function byggSubrader(tr, t, binds) {
               "panel-avvik", finn("panel-avvik"));
     return;
   }
+  // Manuellveksel og sporsperre betjenes LOKALT, ute ved objektet —
+  // de har ikke noe stillerapparat å betjenes fra. Derfor lokalparet,
+  // ikke apparatparet, og ingen Lok-frigivning å skille på.
   if (isManuell(t)) {
-    // Ett betjeningssted, ingen Lok-frigivning å skille på.
     addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "stiller-normal", finn("stiller-normal"));
-    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false);
+              "lokal-normal", finn("lokal-normal"));
+    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false);
     return;
   }
   if (isSperre(t)) {
     // Sperrens språk: normalstillingen ER pålagt. Bindingsnavnene er
     // protokoll mot master og står — bare etikettene er sperrens.
     addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "stiller-normal", finn("stiller-normal"),
+              "lokal-normal", finn("lokal-normal"),
               "ut-avlagt", "betjening pålagt");
-    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false,
+    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false,
               "sensor-normal", finn("sensor-normal"),
               "betjening avlagt", "sensor pålagt");
     return;
