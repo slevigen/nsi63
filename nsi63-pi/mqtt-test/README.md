@@ -41,7 +41,7 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
 | veksel_laast_av_togvei | manuell omlegging av forriglet veksel → `avvist: laast av togvei` |
 | signalstopp_sperrer_sikring | signalstopp på → sikring avvises |
 
-### Samlelås — elektrisk frigitt kontrollnøkkel (SLAAS-RIGEL.md §2.1)
+### Samlelås — elektrisk frigitt kontrollnøkkel
 
 | Test | Kontrakt |
 |------|----------|
@@ -51,7 +51,7 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
 | samlelaas_avviser_omlegging | omlegging av veksel i «omfatter» → `avvist: laast av samlelaas` |
 | samlelaas_nodutlosning | nøkkelen tatt ut uten frigivning under aktiv togvei → `NOEDUTLOSNING`, signal i stopp STRAKS, togveien fortsatt forriglet |
 
-### Rigel — direkte elektrisk lås (SLAAS-RIGEL.md §2.2)
+### Rigel — direkte elektrisk lås
 
 | Test | Kontrakt |
 |------|----------|
@@ -63,7 +63,7 @@ Rigeltestene håndterer både veksler og sporsperrer i «omfatter» —
 temanavn og ord (`normal`/`avvik` mot `paalagt`/`avlagt`) velges av
 objekttypen.
 
-### Stillerdytt-paring (STILLERAPPARAT.md milepæl 5)
+### Stillerdytt-paring
 
 Panelet lener seg på nøyaktig denne mekanikken: to dytt (linjefelt +
 togspor) innen 2 sekunder er én betjening, og retningene er

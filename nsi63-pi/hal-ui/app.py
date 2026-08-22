@@ -651,7 +651,7 @@ def _oppdater_ap_og_hostname(aid: str) -> dict:
     """Døp AP-et (SSID) og Pi-ens hostname etter anleggs-ID-en.
 
     SSID = NSI63 + ID (bare NSI63 uten ID); hostname = samme i små
-    bokstaver (http://nsi63skn.local). Alt feiler mykt så UI-et virker
+    bokstaver (f.eks. http://nsi63abc.local). Alt feiler mykt så UI-et
     også utenfor en ekte Pi. hostapd restartes KUN når SSID-en faktisk
     endres — det kaster alle wifi-klienter (også nettleseren din!),
     derfor gjøres det til slutt, etter at konfigen er publisert.
@@ -1738,7 +1738,7 @@ def api_togvei_betjen():
     return jsonify({"ok": True, "svar": svar})
 
 
-# ---------- digitalt stillerapparat (STILLERAPPARAT.md) ----------
+# ---------- digitalt stillerapparat ----------
 # Flask serverer BARE filene — panelet er en ren MQTT-klient over
 # WebSocket rett mot mosquitto (port 9001, se bootstrap-nsi63.sh) og
 # selvkonfigureres fra retained config-temaer. Ingen API-er her.

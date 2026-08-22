@@ -9,17 +9,23 @@ oppføringen ble slettet manuelt. hostapd håndterer dette selv
 
 ## Installasjon
 
-Fra Mac-en, kopier scriptet til Pi-en og kjør det:
+Fra maskinen din, kopier scriptet til Pi-en og kjør det:
 
 ```bash
-scp install-nsi63-ap.sh truls@nsi63skn.local:~
-ssh truls@nsi63skn.local
+scp install-nsi63-ap.sh BRUKER@VERT:~
+ssh BRUKER@VERT
 sudo bash install-nsi63-ap.sh
 sudo reboot
 ```
 
-(Bruk IP-en i stedet for `nsi63skn.local` hvis du er koblet via
-NSI63-wifien: `10.206.0.1`.)
+`BRUKER` og `VERT` er brukernavnet og vertsnavnet du satte da du skrev
+SD-kortet med Raspberry Pi Imager — altså `<vertsnavn>.local` på et
+vanlig hjemmenett.
+
+Er du allerede koblet til NSI63-wifien, bruk `10.206.0.1` som vert.
+Pi-en svarer alltid på den adressen. Vertsnavnet blir `nsi63<id>.local`
+(f.eks. `nsi63abc.local`) først etter at anleggs-ID-en er satt i
+HAL-UI — ikke ved førstegangsinstallasjonen.
 
 ## Hva scriptet gjør
 

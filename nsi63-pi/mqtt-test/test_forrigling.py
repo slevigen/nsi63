@@ -111,7 +111,7 @@ def test_signalstopp_sperrer_sikring(anlegg, topo):
     anlegg.vent("master/signalstopp", "av")
 
 
-# ---------- samlelås (SLAAS-RIGEL.md §2.1) — hoppes over uten låser ----------
+# ---------- samlelås — hoppes over uten låser i konfigen ----------
 # Nøkkelkontakten simuleres til «inne» først, så testene er
 # deterministiske også på en benk med (eller uten) fysisk kontakt.
 
@@ -177,7 +177,7 @@ def test_samlelaas_nodutlosning(anlegg, topo):
     anlegg.vent(f"samlelaas/{l['id']}/state", "sperret")
 
 
-# ---------- rigel (SLAAS-RIGEL.md §2.2) — hoppes over uten rigler ----------
+# ---------- rigel — hoppes over uten rigler i konfigen ----------
 
 def _obj_kommando(topo, litra, normal):
     """(tema, payload) som legger objektet i normal-/avvikstilling."""
@@ -234,7 +234,7 @@ def test_rigel_frigitt_sperrer_sikring(anlegg, topo):
     assert anlegg.tilstand.get(f"togvei/{tv['id']}/state") in ("ledig", None)
 
 
-# ---------- stillerdytt-paring (STILLERAPPARAT.md milepæl 5) ----------
+# ---------- stillerdytt-paring ----------
 # Panelet lener seg på nøyaktig denne mekanikken: to dytt (linjefelt
 # + togspor) innen 2 sekunder er én betjening, og retningene er
 # geometriske — «venstre ende + dytt mot høyre = inn i stasjonen».

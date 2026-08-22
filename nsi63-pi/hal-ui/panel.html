@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- NSI63 digitalt stillerapparat — MILEPÆL 1: TEKSTPANELET.
-     Se STILLERAPPARAT.md. Helt uten grafikk, men fullt fungerende:
+     Tekstpanel uten grafikk, men fullt fungerende:
      ren MQTT-klient over WebSocket rett mot mosquitto (port 9001) —
      Flask serverer bare denne fila og mqtt.min.js, og er ellers ikke
      i løypa. Panelet SELVKONFIGURERES fra retained config-temaer
@@ -52,7 +52,7 @@
   #logg { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
           color: #8b9096; white-space: pre-wrap; }
   /* ---- sporplanen (milepæl 2, plassholderblokker) ----
-     Kontrakt mot Truls' blokkbibliotek: modul 100×60, sporlinjen i
+     Kontrakt mot blokkbiblioteket: modul 100×60, sporlinjen i
      y=30, inn/ut på modulkanten, lampelinser som egne objekter
      tegnet i tent farge (klassene under mørker/blinker dem). Hver
      plassholderblokk er én funksjon (pbl.*) — kunstverket byttes
@@ -301,7 +301,7 @@ function bygg() {
   }
   h += `</section>`;
 
-  /* Samlelåser — elektrisk frigitte kontrollnøkler (SLAAS-RIGEL.md).
+  /* Samlelåser — elektrisk frigitte kontrollnøkler.
      Sperret = nøkkelen i kontroll, vekslene låst (normaltilstanden).
      Frigitt/nøkkel ute = togveiene i virkeområdet avvises. Nøkkel-
      knappene simulerer nøkkelkontakten (benketesting) — «Sensor»
@@ -520,7 +520,7 @@ function bindInfo(tema) {
 
 /* ==================== SPORPLANEN (milepæl 2-skjelett) ====================
    Plassholder-blokkbibliotek + komposisjonsmotor. Kontrakten mot
-   Truls' kunstverk (STILLERAPPARAT.md kap. 2):
+   Ferdig tegnede blokker:
    - SPOR-BLOKKER på fast modul 100×60 med sporlinjen i y=30 og
      inn/ut på modulkanten. Én blokk per ting; speiling gjør resten.
    - OVERLEGGS-BLOKKER (signaler, lås-symboler, tekst) ankres mot
