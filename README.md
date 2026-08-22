@@ -13,7 +13,7 @@ ferdige binærer under [Releases](../../releases).
 ## Slik henger det sammen
 
 ```
-stillerapparat/anlegg ─ I2C + GPIO ─ ESP32-NODER (dumme, tilstandsløse)
+stillerapparat/anlegg ─ I2C+GPIO ─ ESP32-NODER (dumme, tilstandsløse)
                                        │  ESP-NOW (kontrollplan)
                                    ESP32-MASTER (all sikkerhetslogikk)
                                        │  wifi/MQTT (adminplan)
