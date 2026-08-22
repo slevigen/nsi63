@@ -1493,6 +1493,27 @@ function kbRender() {
 // men vakten under står likevel: den er det som holder en flis fra å
 // late som den henger sammen over et radskift.
 const KB_KOL = 16;
+// Symbol per bindingstype. Portene skal kunne leses uten å slå opp
+// hva «ut-avvik» eller «sensor-paalagt» betyr — formen sier hva som
+// skal kobles der, fargen sier retningen, og litraen sier hvilket
+// objekt. Bevisst enkle geometriske tegn: de må være lesbare på 11 px
+// og finnes i alle systemfonter.
+function portSymbol(sted, type) {
+  if (sted === "anlegg" && SIGNAL_LAMPEFARGE[type]) return "\u25cf"; // ● lampe
+  if (sted.startsWith("panel")) return "\u25cb";      // ○ kontrollampe
+  if (sted === "lokalstillerlampe") return "\u25cb";  // ○ lampe ute
+  if (sted === "togveislampe") return "\u25cb";
+  if (sted === "middelkontrollampe") return "\u25cb";
+  if (sted.startsWith("ut-")) return "\u21c4";        // ⇄ drivutgang
+  if (sted.startsWith("sensor")) return "\u25ce";     // ◎ sensor
+  if (sted.startsWith("stiller") || sted.startsWith("lokal-") ||
+      sted === "kvittering") return "\u25a3";         // ▣ betjening
+  if (type === "klokke") return "\u266a";             // ♪ klokke
+  if (type === "amperemeter") return "\u25b3";        // △ instrument
+  if (type === "trykknapp" || type === "bryter") return "\u25a3";
+  if (type === "inngang") return "\u25ce";
+  return "\u25aa";                                    // ▪ annen utgang
+}
 // Lampefargene ligger i ui/signalfarger.js — DELT med
 // stillerapparatet, så kablingsvisningen og panelet ikke kan vise
 // ulik farge på samme kanal.
@@ -1570,19 +1591,34 @@ function kbRutenett() {
         const tips = her.map(y => y.litra + " " + y.type + " · " + y.sted +
                      (y.av > 1 ? ` (lampe ${y.del + 1} av ${y.av})` : ""))
                      .join("  +  ");
-        const vis = (spenn && x0.del > 0 && !radstart) ? "" : x0.litra;
-        // Lampesignal: vis kanalens FARGE. Da ser man at port 0, 1, 2
-        // er grønn-rød-grønn på et hovedsignal, og at rekkefølgen på
-        // kabelen stemmer med signalhodet — noe et litra ikke kan si.
+        // Symbolet sier HVA som skal kobles, fargen på et lampesymbol
+        // hvilken lampe. Litraen står ikke i cellen, men sentrert over
+        // HELE spennet — ellers ser et treskjæret signal ut som ett
+        // navngitt objekt og to navnløse porter.
         const farge = (her.length === 1 && !konflikt)
                         ? signalLampeFarge(x0.type, x0.del) : null;
-        const lampe = farge
-          ? `<span class="kb-lampe" style="background:${farge}"></span>` : "";
-        h += `<div class="kb-celle ${kls}" title="port ${p}: ${attr(tips)}"` +
+        const sym = konflikt ? "\u2715"
+                             : portSymbol(x0.sted, x0.type);
+        const symStil = farge ? ` style="color:${farge}"` : "";
+        // Etiketten legges på FØRSTE celle i spennet og strekkes over
+        // resten. Cellene er sammenføyd uten mellomrom, så bredden er
+        // n·44 px pluss (n-1)·3 px mellomrom som ikke lenger finnes.
+        const forst = !spenn || x0.del === 0 || radstart;
+        let merke = "";
+        if (forst) {
+          const igjen = spenn
+            ? Math.min(x0.av - x0.del, KB_KOL - (p % KB_KOL)) : 1;
+          const bredde = igjen * 44 + (igjen - 1) * 3;
+          merke = `<span class="kb-merke" style="width:${bredde}px">` +
+                  `${attr(x0.litra)}</span>`;
+        }
+        h += `<div class="kb-celle ${kls}${forst ? " kb-forst" : ""}"` +
+             ` title="port ${p}: ${attr(tips)}"` +
              ` onclick="kbGaaTil('${attr(x0.litra)}',` +
              `'${attr(x0.type)}')">` +
              `<span class="kb-nr">${p}</span>` +
-             `<span class="kb-lit">${lampe}${attr(vis)}</span></div>`;
+             `<span class="kb-sym"${symStil}>${sym}</span>` +
+             merke + `</div>`;
       }
       h += `</div>`;
     }
