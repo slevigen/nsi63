@@ -1487,6 +1487,12 @@ function kbRender() {
 // 16 kanaler i to rader for en PCA9685, 8 for en PCF8574. Hvor mye
 // som er ledig, og hvor hullene ligger, ses da med ett blikk i stedet
 // for ved å telle linjer.
+// Rutenettet er 16 bredt — en PCA9685 får alle kanalene på ÉN linje,
+// og brikkens bredde blir dermed dens kapasitet: en PCF8574 er synlig
+// halvparten så bred, GPIO enda smalere. Ingen brikke kan da wrappe,
+// men vakten under står likevel: den er det som holder en flis fra å
+// late som den henger sammen over et radskift.
+const KB_KOL = 16;
 function kbBrikkeKap(a) {
   return a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
 }
@@ -1527,7 +1533,10 @@ function kbRutenett() {
       h += `<div class="kb-brikkerad"><span class="kb-brikke">` +
            `${kbBrikkeNavn(a)}</span>` +
            `<span class="kb-dim"> · ${fri} ledige</span></div>` +
-           `<div class="kb-grid">`;
+           // Kolonnetallet settes PER BRIKKE, ellers reserverer grid-en
+           // 16 spor også for en PCF8574 og bredden slutter å bety noe.
+           `<div class="kb-grid" style="grid-template-columns:` +
+           `repeat(${Math.min(kap, KB_KOL)}, 44px)">`;
       for (let p = 0; p < kap; p++) {
         const her = porter[p];
         if (!her) {
@@ -1543,7 +1552,7 @@ function kbRutenett() {
         // står bare på den første; de øvrige viser kun portnummeret.
         const x0 = her[0];
         const spenn = her.length === 1 && x0.av > 1;
-        const radstart = p % 8 === 0;   // grid er 8 bred
+        const radstart = p % KB_KOL === 0;
         let kls = konflikt ? "kb-c-feil"
                 : x0.inn ? "kb-c-inn" : "kb-c-ut";
         if (spenn) {
@@ -1552,7 +1561,8 @@ function kbRutenett() {
           // starter den på nytt, med runde hjørner igjen.
           const forts = x0.del > 0 && !radstart;
           if (forts) kls += " kb-spenn-forts";
-          if (x0.del < x0.av - 1 && (p + 1) % 8 !== 0) kls += " kb-spenn-mer";
+          if (x0.del < x0.av - 1 && (p + 1) % KB_KOL !== 0)
+            kls += " kb-spenn-mer";
         }
         const tips = her.map(y => y.litra + " " + y.type + " · " + y.sted +
                      (y.av > 1 ? ` (lampe ${y.del + 1} av ${y.av})` : ""))
