@@ -156,3 +156,33 @@ table.matrise th { color:var(--acc); font-size:11px;
 td.m-fiendtlig { color:var(--warn); font-weight:700; cursor:help; }
 td.m-selv { color:#3d4854; }
 td.m-ok { background:#16241a; }
+
+/* ---- kablingens rutenettvisning ----
+   Samme data som treet, men med brikkens FORM: 16 kanaler i to rader
+   for en PCA9685, 8 for en PCF8574. Hvor hullene ligger ses da med ett
+   blikk. Fargene er de samme som retningsmerkingen ellers i UI-et. */
+.kb-node { margin:0 0 18px; }
+.kb-brikkerad { margin:8px 0 3px; font-size:12.5px; }
+.kb-grid { display:grid; grid-template-columns:repeat(8, 46px);
+           gap:3px; }
+.kb-celle { position:relative; height:34px; border-radius:4px;
+            border:1px solid var(--line); font-size:11px;
+            display:flex; flex-direction:column; justify-content:center;
+            align-items:center; line-height:1.15; overflow:hidden; }
+.kb-celle[onclick] { cursor:pointer; }
+.kb-celle[onclick]:hover { outline:1px solid var(--acc); }
+.kb-nr { color:var(--dim); font-size:9.5px; }
+.kb-lit { font-weight:600; font-size:11.5px; }
+.kb-c-fri { background:#171c22; }
+.kb-c-fri .kb-nr { color:#3d4854; }
+.kb-c-inn { background:#16283a; border-color:var(--inn); color:var(--inn); }
+.kb-c-ut  { background:#2e2318; border-color:var(--ut);  color:var(--ut); }
+/* Fortsettelseskanal: opptatt av signalet ved siden av, uten at noen
+   har bundet noe til akkurat denne porten. */
+.kb-c-reservert { background:#23262b; border-style:dashed;
+                  color:var(--dim); }
+.kb-c-feil { background:#3a1c1c; border-color:var(--warn);
+             color:var(--warn); font-weight:700; }
+.kb-nokkel { display:inline-block; width:22px; height:11px;
+             border-radius:3px; vertical-align:-1px;
+             border:1px solid var(--line); }

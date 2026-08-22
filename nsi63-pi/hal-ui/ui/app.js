@@ -1406,6 +1406,11 @@ function kbBrikkeNavn(a) {
                              : a + " PCF8574 · 8 innganger";
 }
 function kbRender() {
+  const rutenett = (document.querySelector('input[name="kb-vis"]:checked')
+                    || {}).value === "rutenett";
+  document.getElementById("kb-tre").style.display = rutenett ? "none" : "";
+  document.getElementById("kb-rutenett").style.display = rutenett ? "" : "none";
+  if (rutenett) return kbRutenett();
   const visAlle = document.getElementById("kb-alle").checked;
   const st = KBSIGT;
   const {kart, ordrer} = kbKart(st);
@@ -1476,6 +1481,90 @@ function kbRender() {
     ut += "\n";
   }
   document.getElementById("kb-tre").innerHTML = ut;
+}
+// ---- samme data, som RUTENETT ----
+// Treet leses linje for linje; rutenettet gir formen på brikken:
+// 16 kanaler i to rader for en PCA9685, 8 for en PCF8574. Hvor mye
+// som er ledig, og hvor hullene ligger, ses da med ett blikk i stedet
+// for ved å telle linjer.
+function kbBrikkeKap(a) {
+  return a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
+}
+function kbRutenett() {
+  const visAlle = document.getElementById("kb-alle").checked;
+  const {kart, ordrer} = kbKart(KBSIGT);
+  const navn = Object.keys(KBNODER);
+  for (const nd of Object.keys(kart)) if (!navn.includes(nd)) navn.push(nd);
+  const el = document.getElementById("kb-rutenett");
+  if (!navn.length) {
+    el.innerHTML = '<span class="hint">Ingen noder definert ennå.</span>';
+    return;
+  }
+  let h = "";
+  for (const nd of navn) {
+    const mac = (KBNODER[nd] || {}).mac || "ukjent MAC";
+    const skann = KBSKANN[mac.toLowerCase()];
+    const funnet = skann ? skann.i2c : null;
+    const brukt = ordrer[nd] || 0;
+    h += `<div class="kb-node"><b>${attr(nd)}</b>` +
+         `<span class="kb-dim"> · ${attr(mac)} · </span>` +
+         `<span class="${brukt > 34 ? "kb-konflikt" : "kb-dim"}">` +
+         `${brukt} av 40 ordrepunkter</span>`;
+    h += `<div class="kb-dim" style="font-size:11.5px;margin:2px 0 6px">` +
+         (funnet
+            ? `noden meldte ${funnet.length ? attr(funnet.join(", "))
+                                            : "ingen I2C-brikker"}` +
+              (skann.online ? "" : " (sist sett — offline nå)")
+            : `noden har ikke meldt seg — viser bare det som er bundet`) +
+         `</div>`;
+    const brikker = KB_BRIKKER.filter(a => visAlle ||
+      (kart[nd] && kart[nd][a]) || a === "gpio" ||
+      (funnet && funnet.includes(a)));
+    for (const a of brikker) {
+      const porter = (kart[nd] || {})[a] || {};
+      const kap = kbBrikkeKap(a);
+      const fri = kap - Object.keys(porter).length;
+      h += `<div class="kb-brikkerad"><span class="kb-brikke">` +
+           `${kbBrikkeNavn(a)}</span>` +
+           `<span class="kb-dim"> · ${fri} ledige</span></div>` +
+           `<div class="kb-grid">`;
+      for (let p = 0; p < kap; p++) {
+        const her = porter[p];
+        if (!her) {
+          h += `<div class="kb-celle kb-c-fri" title="port ${p}: ledig">` +
+               `<span class="kb-nr">${p}</span></div>`;
+          continue;
+        }
+        const konflikt = her.length > 1 && her.some(x => !x.inn);
+        // Fortsettelseskanal: lampe 2..n av et signal. Porten er
+        // OPPTATT selv om ingen har bundet noe til akkurat den.
+        const fortsettelse = her.length === 1 && her[0].del > 0;
+        const kls = konflikt ? "kb-c-feil"
+                  : fortsettelse ? "kb-c-reservert"
+                  : her[0].inn ? "kb-c-inn" : "kb-c-ut";
+        const tips = her.map(x => x.litra + " " + x.type + " · " + x.sted +
+                     (x.av > 1 ? ` (lampe ${x.del + 1} av ${x.av})` : ""))
+                     .join("  +  ");
+        h += `<div class="kb-celle ${kls}" title="port ${p}: ${attr(tips)}"` +
+             ` onclick="kbGaaTil('${attr(her[0].litra)}',` +
+             `'${attr(her[0].type)}')">` +
+             `<span class="kb-nr">${p}</span>` +
+             `<span class="kb-lit">${attr(fortsettelse ? "↳" : her[0].litra)}` +
+             `</span></div>`;
+      }
+      h += `</div>`;
+    }
+    h += `</div>`;
+  }
+  el.innerHTML = h +
+    `<p class="hint" style="margin-top:10px">` +
+    `<span class="kb-nokkel kb-c-fri"></span> ledig &nbsp; ` +
+    `<span class="kb-nokkel kb-c-inn"></span> bundet inngang &nbsp; ` +
+    `<span class="kb-nokkel kb-c-ut"></span> bundet utgang &nbsp; ` +
+    `<span class="kb-nokkel kb-c-reservert"></span> reservert lampekanal ` +
+    `(↳ hører til signalet til venstre) &nbsp; ` +
+    `<span class="kb-nokkel kb-c-feil"></span> kollisjon. ` +
+    `Hold over for detaljer, klikk for å redigere objektet.</p>`;
 }
 // Hopp til objektet på Objekter-siden, utfoldet
 function kbGaaTil(litra, type) {
