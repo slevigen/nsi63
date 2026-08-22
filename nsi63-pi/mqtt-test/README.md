@@ -25,6 +25,10 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
   mot et hvilket som helst NSI63-anlegg.
 - Suiten rydder anlegget før hver test og etter siste (simene til
   «auto»/«av», alle togveier løses ut).
+- Låsetestene krever at minst én togvei har en låsegruppe i «Krever
+  låst» (feltet `laaser`). Det er der en håndstilt veksel kommer inn i
+  forriglingen — den kan ikke kommanderes, men låsen som holder den
+  garanterer stillingen. Uten en slik togvei hopper testene over.
 
 ## Testene
 
@@ -46,8 +50,8 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
 | Test | Kontrakt |
 |------|----------|
 | samlelaas_frigi_og_sperr | `frigi` → state `frigitt`; `sperr` → `sperret` (nøkkelen simulert inne) |
-| samlelaas_frigitt_sperrer_sikring | frigitt lås → togvei i virkeområdet `avvist`, state forblir `ledig` |
-| samlelaas_frigivning_avvist_av_togvei | forriglet togvei → `frigivning avvist`, låsen forblir `sperret` (tosidig forrigling) |
+| samlelaas_frigitt_sperrer_sikring | frigitt lås → togvei som KREVER den `avvist`, state forblir `ledig` |
+| samlelaas_frigivning_avvist_av_togvei | forriglet togvei som krever låsen → `frigivning avvist`, låsen forblir `sperret` (tosidig forrigling) |
 | samlelaas_avviser_omlegging | omlegging av veksel i «omfatter» → `avvist: laast av samlelaas` |
 | samlelaas_nodutlosning | nøkkelen tatt ut uten frigivning under aktiv togvei → `NOEDUTLOSNING`, signal i stopp STRAKS, togveien fortsatt forriglet |
 
@@ -57,7 +61,7 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
 |------|----------|
 | rigel_sperret_avviser_omlegging | sperret rigel → omlegging av objekt i «omfatter» → `avvist: laast av rigel` |
 | rigel_frigi_omlegging_og_sperr | full sekvens: `frigi` → objektet legges om og tilbake → `sperr` → `etterlop` (10 s) → `sperret` |
-| rigel_frigitt_sperrer_sikring | frigitt rigel → togvei i virkeområdet `avvist` |
+| rigel_frigitt_sperrer_sikring | frigitt rigel → togvei som KREVER den `avvist` |
 
 Rigeltestene håndterer både veksler og sporsperrer i «omfatter» —
 temanavn og ord (`normal`/`avvik` mot `paalagt`/`avlagt`) velges av

@@ -85,6 +85,10 @@ class Topo:
                 "spor": tv.get("spor"), "frie": tv.get("frie", []),
                 "utlos": tv.get("utlosningsfelt"),
                 "sporveksler": tv.get("sporveksler", []),
+                # Låsegruppene togveien krever sperret. Håndstilte
+                # veksler står ikke i «sporveksler» — de kan ikke
+                # kommanderes — så det er HER de kommer inn.
+                "laaser": tv.get("laaser", []),
                 "linjefelt": linje,
                 "uten_linjeblokk": bool(
                     linje and self.felt[linje].get("linjeblokk") is False),
@@ -116,15 +120,24 @@ class Topo:
                  self.laaser[0] if self.laaser else None)
         return l or pytest.skip("ingen samlelaas i konfig")
 
-    def samlelaas_togvei(self):
-        """(lås, togvei) der låsen sperrer togveien — tomt «sperrer»
-        dekker hele stasjonen, ellers togveier til/fra linjefeltene."""
-        for l in self.laaser:
-            spr = l.get("sperrer") or []
+    def _laas_togvei(self, gruppe, hva):
+        """(lås, togvei) der togveien KREVER låsen sperret.
+
+        Relasjonen står i TOGVEIEN, ikke i låsen: hver togvei lister
+        låsegruppene den trenger garantert («laaser»). Det er slik en
+        håndstilt veksel kommer inn i forriglingen — anlegget kan ikke
+        kaste den, men låsen som holder den garanterer stillingen, og
+        DEN kan anlegget kreve.
+        """
+        for l in gruppe:
             for tv in self.togveier:
-                if not spr or tv["linjefelt"] in spr:
+                if l["id"] in (tv.get("laaser") or []):
                     return l, tv
-        pytest.skip("ingen samlelaas som sperrer noen togvei i konfig")
+        pytest.skip(f"ingen {hva} som kreves av noen togvei i konfig "
+                    f"(sett «Krever låst» på en togvei i Forrigling)")
+
+    def samlelaas_togvei(self):
+        return self._laas_togvei(self.laaser, "samlelaas")
 
     def rigel(self):
         """En rigel, helst med objekter i virkeområdet."""
@@ -133,12 +146,7 @@ class Topo:
         return l or pytest.skip("ingen rigel i konfig")
 
     def rigel_togvei(self):
-        for l in self.rigler:
-            spr = l.get("sperrer") or []
-            for tv in self.togveier:
-                if not spr or tv["linjefelt"] in spr:
-                    return l, tv
-        pytest.skip("ingen rigel som sperrer noen togvei i konfig")
+        return self._laas_togvei(self.rigler, "rigel")
 
     def er_sporsperre(self, litra):
         return any(s["id"] == litra for s in self.sperrer_obj)
