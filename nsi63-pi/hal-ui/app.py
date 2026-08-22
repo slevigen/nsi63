@@ -481,6 +481,10 @@ def migrate(data: dict) -> dict:
         # prefiks tvinger eksplisitt håndtering.
         if f.get("type") == "sporveksel-lokal":
             f["type"] = "manuellveksel"
+        # Notatfeltet er fjernet fra HAL-UI: teksten var dokumentasjon
+        # master aldri leste, men den tok 39 % av konfigpayloaden mot
+        # masterens 16 kB-grense.
+        f.pop("notes", None)
         # Den gamle enkeltinngangen var nivåstyrt med LAV = avvik —
         # nøyaktig det «-avvik» alene betyr nå. Hvilket PAR den havner
         # i følger av hvor objektet betjenes fra: den sentralstilte
@@ -2186,6 +2190,8 @@ PAGE = """<!doctype html>
              color:var(--dim); user-select:none; vertical-align:middle;
              font-size:11px; }
   .rad-pil:hover { color:var(--acc); }
+  .xsum { display:block; white-space:nowrap; overflow:hidden;
+          text-overflow:ellipsis; font-size:11.5px; }
   .bindsum { color:var(--dim); font-size:11.5px; cursor:pointer; }
   .bindsum:hover { color:var(--fg); }
   .bindsum.harbind { color:var(--ok); }
@@ -2278,7 +2284,7 @@ PAGE = """<!doctype html>
         <th rowspan="2" style="width:16%"></th>
         <th class="grp" colspan="3">Binding</th>
         <th class="grp" colspan="3">Panel (stillerapparat)</th>
-        <th rowspan="2">Notat</th><th rowspan="2"></th>
+        <th rowspan="2"></th>
       </tr>
       <tr>
         <th>Node</th><th>I2C</th><th>Port</th>
@@ -2633,9 +2639,32 @@ function fillHovedSel(sel) {
   sel.innerHTML = out;
   sel.value = cur;
 }
+function egenskapSum(full) {
+  const deler = [];
+  for (const el of full.querySelectorAll("select,input")) {
+    if (el.type === "checkbox" || el.closest("[hidden]")) continue;
+    // Bruk det brukeren SER i nedtrekket, ikke den rå verdien:
+    // rollen «innkjor» heter «innkjør», og «» heter «auto (høyre)».
+    const v = (el.tagName === "SELECT" && el.selectedOptions[0]
+                 ? el.selectedOptions[0].textContent : el.value).trim();
+    if (!v || v === "—" || v.startsWith("rolle: —")) continue;
+    let n = el.previousSibling, lbl = "";
+    while (n && !lbl) {
+      if (n.nodeType === 1 && n.classList && n.classList.contains("hint"))
+        lbl = n.textContent.replace(/[:\s]+$/, "");
+      n = n.previousSibling;
+    }
+    deler.push(lbl ? `${lbl} ${v}` : v);
+  }
+  const kryss = [...full.querySelectorAll("input[type=checkbox]")]
+                  .filter(c => c.checked && !c.closest("[hidden]"))
+                  .map(c => c.value);
+  if (kryss.length) deler.push(kryss.join(", "));
+  return deler.join(" · ");
+}
 function decorateRow(tr) {
   const t = tr.querySelector(".f-type").value;
-  const extraCell = tr.querySelector(".f-extra");
+  const extraCell = tr.querySelector(".f-extra .xfull");
   if (t === "forsignal2") {
     // Etiketten står UTENFOR select-en, så litraen alltid er synlig
     const curM = tr.dataset.montert || "";
@@ -2815,6 +2844,12 @@ function decorateRow(tr) {
   } else {
     extraCell.textContent = "";
   }
+  // Kompakt sammendrag til den sammenlagte raden. Bygges av cellen
+  // SELV — etikett (.hint) pluss verdien på kontrollen etter den — så
+  // den følger med av seg selv når en type får nye felt. Skjulte
+  // felter (tegnefeltene) utelates; de hører til utfoldet visning.
+  const sum = tr.querySelector(".f-extra .xsum");
+  if (sum) sum.textContent = egenskapSum(extraCell);
   for (const c of ["p-node","p-i2c","p-port"])
     tr.querySelector("." + c).disabled = !panelOk(t);
   // Meldefelt: hovedradens generiske sensorbinding brukes ikke —
@@ -2828,7 +2863,7 @@ function decorateRow(tr) {
   }
 }
 function addRow(f, foerEl) {
-  f = f || {id:"", type:"hovedsignal3", bindinger:[], notes:""};
+  f = f || {id:"", type:"hovedsignal3", bindinger:[]};
   const t = f.type, binds = f.bindinger || [];
   const r = roller(t);
   // Hovedradens binding: eksakt sted, ellers et legacy-sted som ikke
@@ -2882,13 +2917,13 @@ function addRow(f, foerEl) {
            ? GRUPPER[gruppeIdx(t)].typer
            : [t].concat(GRUPPER[gruppeIdx(t)].typer))
           .map(x=>opt(x,x,t)).join("")}</select></td>
-    <td class="hint f-extra"></td>
+    <td class="hint f-extra"><span class="xsum"></span>
+        <span class="xfull"></span></td>
     <td class="bindsum" colspan="6" onclick="radToggle(this)"></td>
     ${bindCells("a", main,
                 hovedErInngang(t) ? "0x20" : defaultI2c(r[0]),
                 r[0], hovedErInngang(t))}
     ${bindCells("p", panel, "0x40", "panel")}
-    <td><input class="f-notes" value="${attr(f.notes)}"></td>
     <td><button class="row-del" onclick="delFn(this)">✕</button></td>`;
   const tb = document.querySelector("#tbl tbody");
   if (foerEl) tb.insertBefore(tr, foerEl);
@@ -2926,7 +2961,7 @@ function grpHeaderRow(gi) {
     ${panelOk(G.typer[0])
         ? kap(G.panel, true)
         : `<td colspan="3" class="grpkol dim">${G.panel}</td>`}
-    <td colspan="2"></td>`;
+    <td></td>`;
   return tr;
 }
 function grpHeader(gi) {
@@ -2934,7 +2969,7 @@ function grpHeader(gi) {
 }
 function grpAdd(gi) {
   COLLAPSED.delete(gi);                     // vis gruppen det legges til i
-  addRow({id:"", type: GRUPPER[gi].typer[0], bindinger:[], notes:""},
+  addRow({id:"", type: GRUPPER[gi].typer[0], bindinger:[]},
          grpHeader(gi + 1));                // null = nederst (siste gruppe)
   grpOppdater();
 }
@@ -3034,6 +3069,10 @@ function grpOppdater() {
       }
       for (const td of tr.querySelectorAll("td.pc"))
         td.style.display = radAapen ? "" : "none";
+      const xf = tr.querySelector(".f-extra .xfull");
+      const xs = tr.querySelector(".f-extra .xsum");
+      if (xf) xf.style.display = radAapen ? "" : "none";
+      if (xs) xs.style.display = radAapen ? "none" : "";
       continue;
     }
     // underrad: synlig bare når hovedraden er det OG utfoldet
@@ -3341,8 +3380,7 @@ function collect() {
         port: parseInt(tr.querySelector(".p-port").value || "0")});
     }
     const fn = {id: tr.querySelector(".f-id").value.trim(), type: t,
-                bindinger: binds,
-                notes: tr.querySelector(".f-notes").value.trim()};
+                bindinger: binds};
     if (tr.dataset.orgId && tr.dataset.orgId !== fn.id)
       fn.gammel_id = tr.dataset.orgId;   // referansene skrives om
     const montert = tr.querySelector(".f-montert");
