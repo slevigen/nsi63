@@ -2176,6 +2176,19 @@ PAGE = """<!doctype html>
   /* Kolonnen er deaktivert for denne gruppen — ingen pil, ingen
      farge, så teksten ikke inviterer til et valg som ikke finnes. */
   .grpkol.dim { color:var(--dim); opacity:.55; }
+  /* Sammenlagt objektrad: portene erstattes av ett sammendrag, så
+     linjen sier hva objektet ER i stedet for å vise ni tomme felter. */
+  /* Pila og litra på SAMME linje: input arver width:100% fra regelen
+     over og ville ellers brutt til neste linje og gjort raden høyere. */
+  td.litra { white-space:nowrap; }
+  td.litra .f-id { width:calc(100% - 15px); }
+  .rad-pil { display:inline-block; width:13px; cursor:pointer;
+             color:var(--dim); user-select:none; vertical-align:middle;
+             font-size:11px; }
+  .rad-pil:hover { color:var(--acc); }
+  .bindsum { color:var(--dim); font-size:11.5px; cursor:pointer; }
+  .bindsum:hover { color:var(--fg); }
+  .bindsum.harbind { color:var(--ok); }
   .grp-pil { display:inline-block; width:14px; color:var(--acc); }
   .sub-label { color:var(--dim); font-size:12px; text-align:right; }
   /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
@@ -2243,6 +2256,11 @@ PAGE = """<!doctype html>
     <input id="halfilter" style="max-width:280px"
            placeholder="filtrer: litra, type eller node…"
            oninput="halFilter(this.value)">
+    <label class="hint" style="white-space:nowrap;cursor:pointer">
+      <input type="checkbox" onchange="halBareBundne(this.checked)">
+      bare bundne porter</label>
+    <button class="mini" onclick="radAlle(true)">fold ut alle</button>
+    <button class="mini" onclick="radAlle(false)">fold sammen</button>
   </div>
   <p class="forklaring">
     Retningen på hver binding er merket:
@@ -2388,6 +2406,12 @@ const GRUPPER = [
    bindNoytral: true, panel: ""},
 ];
 const COLLAPSED = new Set();   // sammenlagte grupper (per sidevisning)
+// Utfoldede objektrader. Radene ligger i DOM-en uansett — bare skjult
+// — så collect() leser dem som før og ingenting kan falle ut ved
+// lagring fordi noe var sammenlagt.
+const RADAAPEN = new Set();
+let RAD_TELLER = 0;            // stabil id per rad, uavhengig av litra
+let BARE_BUNDNE = false;       // filter: skjul porter uten binding
 function gruppeIdx(type) {
   const i = GRUPPER.findIndex(g => g.typer.includes(type));
   return i < 0 ? GRUPPER.length - 1 : i;
@@ -2531,9 +2555,9 @@ function bindCells(prefix, b, defI2c, sted, innOverstyr) {
   const inn = innOverstyr === undefined ? erInngang(sted) : innOverstyr;
   const kls = sted ? (inn ? " retn-inn" : " retn-ut") : "";
   return `
-    <td><select class="${prefix}-node" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
-    <td class="i2c${kls}"><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
-    <td class="port"><select class="${prefix}-port">${portOptions(portCount(i2cVal), b.port??0, i2cVal)}</select></td>`;
+    <td class="pc"><select class="${prefix}-node" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
+    <td class="pc i2c${kls}"><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
+    <td class="pc port"><select class="${prefix}-port">${portOptions(portCount(i2cVal), b.port??0, i2cVal)}</select></td>`;
 }
 // Er dette bindingsstedet en INNGANG (noe anlegget forteller master)
 // eller en UTGANG (noe master driver)? Én kilde til sannhet for både
@@ -2841,6 +2865,7 @@ function addRow(f, foerEl) {
   tr.dataset.skiftv = JSON.stringify(f.skift_sporveksler ||
                                      f.omfatter || []);
   tr.dataset.navn = f.navn || "";
+  tr.dataset.rid = ++RAD_TELLER;   // stabil id: litra kan endres mens man skriver
   // Sporplan-topologien (kun tegning; master ignorerer feltene)
   tr.dataset.spiss = f.spiss || "";
   tr.dataset.plusstil = f.pluss_til || "";
@@ -2849,13 +2874,16 @@ function addRow(f, foerEl) {
   tr.dataset.avvikben = f.avvik_ben || "";
   tr.dataset.liggeri = f.ligger_i || "";
   tr.innerHTML = `
-    <td><input class="f-id" value="${attr(f.id)}" placeholder="A"></td>
+    <td class="litra"><span class="rad-pil" onclick="radToggle(this)"
+              title="Vis eller skjul portene for dette objektet">▸</span>` +
+      `<input class="f-id" value="${attr(f.id)}" placeholder="A"></td>
     <td><select class="f-type" onchange="typeChanged(this)">
         ${(GRUPPER[gruppeIdx(t)].typer.includes(t)
            ? GRUPPER[gruppeIdx(t)].typer
            : [t].concat(GRUPPER[gruppeIdx(t)].typer))
           .map(x=>opt(x,x,t)).join("")}</select></td>
     <td class="hint f-extra"></td>
+    <td class="bindsum" colspan="6" onclick="radToggle(this)"></td>
     ${bindCells("a", main,
                 hovedErInngang(t) ? "0x20" : defaultI2c(r[0]),
                 r[0], hovedErInngang(t))}
@@ -2924,15 +2952,59 @@ function halFilter(q) {
   HALFILTER = (q || "").trim().toLowerCase();
   grpOppdater();
 }
-function grpOppdater() {   // vis/skjul etter sammenlegging + tell rader
+// Er noen bindingsplass på DENNE raden satt? Deaktiverte plasser
+// (panelkolonnen der den ikke gjelder) teller ikke med — de kan
+// uansett ikke bindes.
+function radPorter(tr) {
+  let tot = 0, satt = 0;
+  for (const sel of tr.querySelectorAll('select[class$="-node"]')) {
+    if (sel.disabled) continue;
+    tot++;
+    if (sel.value) satt++;
+  }
+  return {tot, satt};
+}
+// Portsammendrag for et helt objekt: hovedraden pluss underradene.
+function radSumTotal(tr) {
+  let t = radPorter(tr);
+  let n = tr.nextElementSibling;
+  while (n && n.classList.contains("subrow")) {
+    const p = radPorter(n);
+    t = {tot: t.tot + p.tot, satt: t.satt + p.satt};
+    n = n.nextElementSibling;
+  }
+  return t;
+}
+function radToggle(el) {
+  const tr = el.closest("tr");
+  const rid = tr.dataset.rid;
+  RADAAPEN.has(rid) ? RADAAPEN.delete(rid) : RADAAPEN.add(rid);
+  grpOppdater();
+}
+function halBareBundne(pa) { BARE_BUNDNE = !!pa; grpOppdater(); }
+function radAlle(aapen) {
+  RADAAPEN.clear();
+  if (aapen)
+    for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow"))
+      RADAAPEN.add(tr.dataset.rid);
+  grpOppdater();
+}
+
+// ÉN funksjon regner ut synligheten fra ALLE tilstandene — sammenlagt
+// gruppe, sammenlagt rad, tekstfilter og bare-bundne. Skrus display
+// på ad hoc fra flere steder, ender de før eller siden i konflikt.
+function grpOppdater() {
   let gi = -1;
   const tall = {};
-  let radMatch = true;   // gjelder hovedraden OG underradene dens
+  let radMatch = true;     // gjelder hovedraden OG underradene dens
+  let radVist = true;      // hovedraden er synlig
+  let radAapen = false;    // ... og utfoldet
   for (const tr of document.querySelectorAll("#tbl tbody tr")) {
     if (tr.classList.contains("grphead")) {
       gi = parseInt(tr.dataset.grp);
       tr.querySelector(".grp-pil").textContent =
         COLLAPSED.has(gi) ? "▸" : "▾";
+      tr.style.display = "";
       continue;
     }
     if (tr.classList.contains("fnrow")) {
@@ -2941,8 +3013,33 @@ function grpOppdater() {   // vis/skjul etter sammenlegging + tell rader
         [...tr.querySelectorAll("input,select")]
           .map(e => (e.value || "")).join(" ").toLowerCase()
           .includes(HALFILTER);
+      const p = radPorter(tr);
+      // Med «bare bundne» skjules objekter uten en eneste binding —
+      // hovedradens egne OG underradenes, som telles i sammendraget.
+      const sum = radSumTotal(tr);
+      radAapen = RADAAPEN.has(tr.dataset.rid);
+      radVist = !COLLAPSED.has(gi) && radMatch &&
+                (!BARE_BUNDNE || sum.satt > 0);
+      tr.style.display = radVist ? "" : "none";
+      // Sammendrag i stedet for portceller når raden er sammenlagt
+      const pil = tr.querySelector(".rad-pil");
+      if (pil) pil.textContent = radAapen ? "▾" : "▸";
+      const sumCelle = tr.querySelector(".bindsum");
+      if (sumCelle) {
+        sumCelle.style.display = radAapen ? "none" : "";
+        sumCelle.textContent = sum.tot
+          ? `${sum.satt} av ${sum.tot} porter bundet`
+          : "ingen porter";
+        sumCelle.className = "bindsum" + (sum.satt ? " harbind" : "");
+      }
+      for (const td of tr.querySelectorAll("td.pc"))
+        td.style.display = radAapen ? "" : "none";
+      continue;
     }
-    tr.style.display = (COLLAPSED.has(gi) || !radMatch) ? "none" : "";
+    // underrad: synlig bare når hovedraden er det OG utfoldet
+    let vis = radVist && radAapen;
+    if (vis && BARE_BUNDNE) vis = radPorter(tr).satt > 0;
+    tr.style.display = vis ? "" : "none";
   }
   GRUPPER.forEach((g, i) => {
     const h = grpHeader(i);
