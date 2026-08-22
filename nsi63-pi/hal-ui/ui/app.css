@@ -169,10 +169,14 @@ td.m-ok { background:#16241a; }
    tegnes sammenhengende over et radskift. */
 .kb-grid { display:grid; grid-template-columns:repeat(16, 44px);
            gap:3px; width:max-content; }
+/* Innholdet ligger mot TOPPEN, ikke sentrert: da står portnumrene på
+   linje tvers over brikken enten cellen er tom eller har et objekt
+   under seg. Nummeret er det man leser bortover for å finne en port. */
 .kb-celle { position:relative; height:34px; border-radius:4px;
             border:1px solid var(--line); font-size:11px;
-            display:flex; flex-direction:column; justify-content:center;
-            align-items:center; line-height:1.15; overflow:hidden; }
+            display:flex; flex-direction:column; justify-content:flex-start;
+            align-items:center; line-height:1.15; overflow:hidden;
+            padding-top:3px; }
 .kb-celle[onclick] { cursor:pointer; }
 .kb-celle[onclick]:hover { outline:1px solid var(--acc); }
 .kb-nr { color:var(--dim); font-size:9.5px; }
@@ -200,5 +204,4 @@ td.m-ok { background:#16241a; }
 /* Lampen på en signalkanal: fargen lyset faktisk har. Gjør at
    rekkefølgen på kabelen kan sammenliknes med signalhodet. */
 .kb-lampe { display:inline-block; width:9px; height:9px;
-            border-radius:50%; margin-right:3px; vertical-align:0;
-            box-shadow:0 0 4px currentColor; border:1px solid #0006; }
+            border-radius:50%; margin-right:3px; vertical-align:0; }
