@@ -26,6 +26,9 @@ if [ -d "$GAMMEL" ]; then
   rm -f /etc/systemd/system/tutela-hal.service
 fi
 cp "$HERE/app.py" "$DIR/"
+# Brukerflaten: HTML, CSS og JS som egne filer
+rm -rf "$DIR/ui"
+cp -R "$HERE/ui" "$DIR/ui"
 # hal.json kopieres bare hvis den ikke finnes fra før (ikke overskriv konfig!)
 if [ ! -f "$DIR/hal.json" ]; then
   cp "$HERE/hal.json" "$DIR/"

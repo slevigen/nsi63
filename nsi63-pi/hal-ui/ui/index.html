@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="no"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NSI63 — sikringsanlegg</title>
+<link rel="stylesheet" href="/ui/app.css"></head><body>
+<header>
+  <h1 id="tittel">NSI63<small>sikringsanlegg</small></h1>
+  <nav>
+    <button class="tab active" data-view="noder"
+            onclick="gaaTilFane('noder')">System</button>
+    <button class="tab" data-view="hal"
+            onclick="gaaTilFane('hal')">Objekter</button>
+    <button class="tab" data-view="kabling"
+            onclick="gaaTilFane('kabling')">Kabling</button>
+    <button class="tab" data-view="forrigling"
+            onclick="gaaTilFane('forrigling')">Forrigling</button>
+  </nav>
+  <div id="status">laster…</div>
+<div id="lpbanner" style="display:none;background:#7a5210;color:#ffe9c4;
+     padding:8px 14px;border-radius:8px;margin:8px 0;font-weight:600">
+  ⚠ LAMPEPRØVE PÅGÅR — <span id="lpbanner-txt"></span>
+  <button class="mini" style="margin-left:12px"
+          onclick="lampTest('stop')">Avslutt lampeprøve</button>
+</div>
+<div id="testbanner" style="display:none;background:#7a2f10;color:#ffd9c4;
+     padding:8px 14px;border-radius:8px;margin:8px 0;font-weight:600">
+  ⚠ TESTMODUS — MQTT-kommandoer omgår forriglingen. Stillerapparatet og
+  sikring av togvei er fortsatt forriglet.
+  <button class="mini" style="margin-left:12px"
+          onclick="slaAvTestmodus()">Skru av testmodus</button>
+</div>
+</header>
+<main>
+<section id="view-hal" style="display:none">
+  <div class="bar" style="margin:0 0 8px">
+    <input id="halfilter" style="max-width:280px"
+           placeholder="filtrer: litra, type eller node…"
+           oninput="halFilter(this.value)">
+    <label class="hint" style="white-space:nowrap;cursor:pointer">
+      <input type="checkbox" onchange="halBareBundne(this.checked)">
+      bare bundne porter</label>
+    <button class="mini" onclick="radAlle(true)">fold ut alle</button>
+    <button class="mini" onclick="radAlle(false)">fold sammen</button>
+  </div>
+  <p class="forklaring">
+    Retningen på hver binding er merket:
+    <span class="retn-inn">&larr; <b>inngang</b></span> — sensor, knapp
+    eller bryter som anlegget melder til master (PCF8574, 0x20&ndash;0x23).
+    <span class="retn-ut"><b>utgang</b> &rarr;</span> — lampe eller motor
+    master driver (PCA9685, 0x40&ndash;0x43).
+    I2C-feltet har samme farge som retningen slotten forventer.
+  </p>
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th rowspan="2" style="width:6%">Litra</th>
+        <th rowspan="2" style="width:10%">Type</th>
+        <th rowspan="2" style="width:16%"></th>
+        <th class="grp" colspan="3">Binding</th>
+        <th class="grp" colspan="3">Panel (stillerapparat)</th>
+        <th rowspan="2"></th>
+      </tr>
+      <tr>
+        <th>Node</th><th>I2C</th><th>Port</th>
+        <th>Node</th><th>I2C</th><th>Port</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div class="bar">
+    <input type="file" id="restoreFile" accept=".json,application/json"
+           style="display:none" onchange="restoreBackup(this)">
+    <span class="spacer"></span>
+    <span id="msg"></span>
+    <button class="primary" onclick="save()">Lagre og publiser</button>
+  </div>
+  <p class="hint">Signaler: port = førsteport, lampene på påfølgende kanaler;
+  hovedraden er anleggssignalet. Veksler: motorutgang normal (hovedraden)
+  og avvik + stiller (betjeningsbryteren — vridd mot GND = avvik),
+  deretter én linje per stilling med stillingssensoren i bindings-
+  kolonnene og kontrollampen i panelkolonnene (lyser når stillingen er
+  bekreftet av sensor). Skiftesignal: stiller-binding = bryter
+  (mot GND = skifting tillatt). Sporfeltenes panellampe er TENT når
+  feltet er fritt; varselfeltets blinker mens varslet står ukvittert.
+  Varselfelt: sensor-ytre = lengst fra stasjonen — slår den ut
+  først, er toget i anmarsj og varselklokken ringer; indre først =
+  utgående tog, intet varsel. Brytere med rolle signalstopp/frigivning:
+  panel-bindingen er kontrollampen; sporvekselens lokalstillerlampe er tent når
+  den er frigitt for lokal omlegging.
+  Sporfelt: én sensorrad per seksjon feltet krysser (logisk OR).
+  Alle bindinger starter på «—» (ingen) — rader du lar stå tomme
+  lagres ikke. Bindinger er valgfrie: en litra uten bindinger finnes
+  rent logisk (f.eks. sporfelt som simuleres til sensorene er koblet).
+  I2C-forvalgene er kun forslag — enhver PCA9685 kan drive enhver
+  utgang, og en node kan ha flere av hver brikke.</p>
+</section>
+<section id="view-kabling" style="display:none">
+  <div class="card">
+    <h2>Kabling</h2>
+    <p class="hint">Samme bindinger som på Objekter-siden, lest fra
+    motsatt kant: node → brikke → port. Bare brikkene noden faktisk
+    fant ved I2C-skanningen vises — pluss GPIO, som alltid finnes, og
+    alt som er bundet. Her ser du hva som ligger hvor,
+    hvilke porter som er ledige, og hvor mye av nodens 40 ordrepunkter
+    som er brukt. Et signal med flere lamper opptar PÅFØLGENDE kanaler
+    fra bindingsporten — de vises som ett spenn, så du ikke legger noe
+    annet oppi.</p>
+    <div class="bar" style="margin:6px 0">
+      <label class="hint" style="cursor:pointer">
+        <input type="checkbox" id="kb-alle" onchange="kbRender()">
+        vis alle mulige brikkeadresser</label>
+      <span class="hint">Klikk et objekt for å redigere det på
+      Objekter-siden.</span>
+    </div>
+    <pre id="kb-tre" class="kabtre"></pre>
+  </div>
+</section>
+<section id="view-forrigling" style="display:none">
+  <div class="card">
+    <pre id="fr-skisse" class="skisse"></pre>
+    <div id="fr-tegn" class="hint" style="margin-top:4px"></div>
+    <div id="fr-adv" class="hint" style="margin-top:6px"></div>
+  </div>
+  <div id="fr-cards"></div>
+  <div class="bar">
+    <button id="fr-ny" onclick="frAdd()">+ Ny togvei</button>
+    <span id="fr-krav" class="hint"></span>
+    <span class="spacer"></span>
+    <span id="fr-msg"></span>
+    <button class="primary" onclick="frSave()">Lagre og publiser</button>
+  </div>
+  <div id="fr-konflikter"></div>
+  <p class="hint">En togvei går FRA et sporfelt TIL et sporfelt:
+  linjefelt→togspor er innkjør, togspor→linjefelt er utkjør, og
+  togspor→togspor er indre togvei (krever hovedsignal med rolle indre).
+  Hovedsignalet, ID-en, de frie feltene og utløsningsfeltet avledes av
+  endene — koble hovedsignalene til linjefeltet de står foran
+  («foran» under Objekter) så blir signalvalget entydig. Signalbildet utledes
+  automatisk — veksel i avvik gir «kjør med redusert hastighet».
+  Fiendtlige togveier beregnes av tabellen (felles sporfelt eller
+  veksel i ulik stilling) og håndheves av master.</p>
+</section>
+<section id="view-noder"></section>
+</main>
+<script src="/ui/app.js"></script></body></html>

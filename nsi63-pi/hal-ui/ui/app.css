@@ -1,0 +1,138 @@
+:root { --bg:#14171c; --panel:#1d232b; --line:#2e3742; --fg:#e8e6e3;
+          --dim:#98a2ae; --acc:#e0a437; --ok:#5bb974; --warn:#e06c5b;
+          /* Retning på en binding: inn til master fra anlegget, eller
+             ut fra master til anlegget. Blått = inngang (PCF8574),
+             oransje = utgang (PCA9685). */
+          --inn:#5aa9e6; --ut:#d98c4a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 system-ui, sans-serif; }
+  header { padding:18px 24px; border-bottom:2px solid var(--acc);
+           display:flex; justify-content:space-between; align-items:baseline; }
+  h1 { margin:0; font-size:20px; letter-spacing:.06em; }
+  h1 small { color:var(--dim); font-weight:400; margin-left:10px; }
+  #status { color:var(--dim); font-size:13px; }
+  main { padding:20px 24px; max-width:1280px; margin:0 auto; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); }
+  th, td { padding:6px 8px; border:1px solid var(--line); text-align:left; }
+  th { color:var(--dim); font-size:11px; text-transform:uppercase;
+       letter-spacing:.08em; }
+  th.grp { text-align:center; color:var(--acc); }
+  /* Avkryssingsbokser må unntas width:100% under — ellers strekkes
+     selve boksen over hele etiketten, og teksten havner langt til
+     høyre for den. Gjelder alle avkryssinger i UI-et. */
+  input[type=checkbox] { width:auto; margin:0 4px 0 0;
+                         vertical-align:middle; }
+  input, select { width:100%; background:var(--bg); color:var(--fg);
+                  border:1px solid var(--line); border-radius:4px;
+                  padding:5px 7px; font:inherit; }
+  input:focus, select:focus { outline:1px solid var(--acc); }
+  select:disabled, input:disabled { opacity:.25; }
+  td.port select { width:70px; }
+  .hint { color:var(--dim); font-size:11px; }
+  /* tegnefelter: gjelder KUN sporplan-tegningen, skjult til de
+     klikkes fram — ikke alle vil ha et digitalt panel */
+  .tegnvis { color:var(--dim); font-size:11px; cursor:pointer;
+             text-decoration:underline dotted; user-select:none; }
+  .subrow td { border-top:none; background:#181d24; }
+  .grphead td { background:#10141a; border-top:2px solid #2a3140;
+                padding:10px 8px 6px; }
+  /* Kablingstreet: bevisst IKKE en tabell. Portene er en fysisk,
+     ordnet liste, og trestrukturen viser hierarkiet node → brikke →
+     port direkte. Fast bredde holder portnumrene i kolonne. */
+  .kabtre { margin:0; font-family:ui-monospace, Menlo, monospace;
+            font-size:12.5px; line-height:1.65; overflow-x:auto;
+            white-space:pre; color:var(--fg); }
+  .kabtre b { color:var(--acc); font-size:13px; }
+  .kb-dim { color:var(--dim); }
+  .kb-brikke { color:var(--fg); }
+  .kb-ledig { color:#4a5461; }
+  .kb-obj { color:var(--inn); cursor:pointer; text-decoration:none;
+            border-bottom:1px dotted currentColor; }
+  .kb-obj:hover { color:var(--acc); }
+  .kb-konflikt { color:var(--warn); font-weight:700; }
+  .skisse { margin:0; line-height:1.7; overflow-x:auto;
+            font-size:13px; color:#7f8ba0; }
+  .sk-hs { color:#ff6b6b; }   /* hovedsignal */
+  .sk-fs { color:#ffd75e; }   /* forsignal */
+  .sk-ts { color:#6db3ff; }   /* togspor */
+  .sk-lf { color:#c792ea; }   /* linjefelt */
+  .sk-mf { color:#4dd0c4; }   /* varselfelt */
+  .sk-vx { color:#ffa657; }   /* veksel */
+  .grphead b { color:var(--acc); }
+  /* Kolonnetekst per gruppe: hva «Binding» og «Panel» ER her. Samme
+     retningsfarger som radene under, så det leses som ett system. */
+  .grpkol { font-size:11px; font-weight:400; text-transform:none;
+            letter-spacing:0; opacity:.85; }
+  /* Kolonnen er deaktivert for denne gruppen — ingen pil, ingen
+     farge, så teksten ikke inviterer til et valg som ikke finnes. */
+  .grpkol.dim { color:var(--dim); opacity:.55; }
+  /* Sammenlagt objektrad: portene erstattes av ett sammendrag, så
+     linjen sier hva objektet ER i stedet for å vise ni tomme felter. */
+  /* Pila og litra på SAMME linje: input arver width:100% fra regelen
+     over og ville ellers brutt til neste linje og gjort raden høyere. */
+  td.litra { white-space:nowrap; }
+  td.litra .f-id { width:calc(100% - 15px); }
+  .rad-pil { display:inline-block; width:13px; cursor:pointer;
+             color:var(--dim); user-select:none; vertical-align:middle;
+             font-size:11px; }
+  .rad-pil:hover { color:var(--acc); }
+  .xsum { display:block; white-space:nowrap; overflow:hidden;
+          text-overflow:ellipsis; font-size:11.5px; }
+  .bindsum { color:var(--dim); font-size:11.5px; cursor:pointer; }
+  .bindsum:hover { color:var(--fg); }
+  .bindsum.harbind { color:var(--ok); }
+  .grp-pil { display:inline-block; width:14px; color:var(--acc); }
+  /* ---- Objekttabellen som TRE ----
+     Rutenettet kom av border på hver celle. Uten det, og med
+     grenglyfer i første kolonne, leses den som kablingstreet: node
+     → objekt → binding. <table> beholdes som mekanikk, fordi
+     kolonnene MÅ flukte når en rad er utfoldet — og fordi collect()
+     leser radene der lagringen skjer. Utseendet er skinn, ikke
+     ombygging av lagringsveien. */
+  #tbl td, #tbl th { border:none; padding:3px 8px; }
+  #tbl { background:transparent; }
+  #tbl thead th { color:#5b6572; font-size:10px; padding-bottom:6px; }
+  #tbl tr.fnrow:hover > td { background:#1b2129; }
+  #tbl tr.grphead td { background:transparent;
+                       border-top:1px solid var(--line); }
+  .tregren { color:#3d4854; font-family:ui-monospace, Menlo, monospace;
+             font-size:12px; user-select:none; white-space:pre; }
+  .sub-label { color:var(--dim); font-size:12px; text-align:left; }
+  .sub-label .tregren { margin-right:2px; }
+  /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
+     bryter) og hvor en UTGANG (lampe, motor). Fargen ligger på
+     I2C-cellen, som er der brikketypen faktisk velges. */
+  .retn-inn { color:var(--inn); }
+  .retn-ut  { color:var(--ut); }
+  td.i2c.retn-inn select { border-color:var(--inn); }
+  td.i2c.retn-ut  select { border-color:var(--ut); }
+  .forklaring { font-size:11.5px; color:var(--dim); margin:0 0 6px; }
+  .forklaring b { font-weight:600; }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:4px; padding:8px 14px; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); color:#14171c; border:none;
+                   font-weight:600; }
+  button.mini { padding:2px 8px; font-size:12px; }
+  .row-del { color:var(--warn); border:none; background:none; font-size:15px; }
+  .bar { display:flex; gap:10px; margin:16px 0; align-items:center; }
+  .spacer { flex:1; }
+  #msg { font-size:14px; }
+  #msg.ok { color:var(--ok); } #msg.err { color:var(--warn); }
+  nav { display:flex; gap:6px; }
+  .tab { padding:6px 16px; border-radius:4px 4px 0 0; }
+  .tab.active { background:var(--acc); color:#14171c; border-color:var(--acc);
+                font-weight:600; }
+  .card { background:var(--panel); border:1px solid var(--line);
+          border-radius:6px; padding:14px 16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 4px; font-size:16px; letter-spacing:.04em; }
+  .card h2 .off { color:var(--warn); font-size:13px; }
+  .card h2 .on { color:var(--ok); font-size:13px; }
+  .chips { display:flex; flex-wrap:wrap; gap:16px; margin-top:10px; }
+  .chip table { width:auto; }
+  .chip caption { color:var(--acc); font-size:12px; text-align:left;
+                  padding:2px 0 6px; letter-spacing:.06em; }
+  .chip td, .chip th { padding:2px 10px; font-size:13px; }
+  .bit1 { color:var(--ok); } .bit0 { color:var(--warn); font-weight:600; }
+  .fri { color:#4a5563; }
