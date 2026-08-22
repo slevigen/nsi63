@@ -2164,6 +2164,20 @@ PAGE = """<!doctype html>
   .subrow td { border-top:none; background:#181d24; }
   .grphead td { background:#10141a; border-top:2px solid #2a3140;
                 padding:10px 8px 6px; }
+  /* Kablingstreet: bevisst IKKE en tabell. Portene er en fysisk,
+     ordnet liste, og trestrukturen viser hierarkiet node → brikke →
+     port direkte. Fast bredde holder portnumrene i kolonne. */
+  .kabtre { margin:0; font-family:ui-monospace, Menlo, monospace;
+            font-size:12.5px; line-height:1.65; overflow-x:auto;
+            white-space:pre; color:var(--fg); }
+  .kabtre b { color:var(--acc); font-size:13px; }
+  .kb-dim { color:var(--dim); }
+  .kb-brikke { color:var(--fg); }
+  .kb-ledig { color:#4a5461; }
+  .kb-obj { color:var(--inn); cursor:pointer; text-decoration:none;
+            border-bottom:1px dotted currentColor; }
+  .kb-obj:hover { color:var(--acc); }
+  .kb-konflikt { color:var(--warn); font-weight:700; }
   .skisse { margin:0; line-height:1.7; overflow-x:auto;
             font-size:13px; color:#7f8ba0; }
   .sk-hs { color:#ff6b6b; }   /* hovedsignal */
@@ -2239,6 +2253,7 @@ PAGE = """<!doctype html>
   <nav>
     <button class="tab active" onclick="showView('noder', this)">System</button>
     <button class="tab" onclick="showView('hal', this)">Objekter</button>
+    <button class="tab" onclick="showView('kabling', this)">Kabling</button>
     <button class="tab" onclick="showView('forrigling', this)">Forrigling</button>
   </nav>
   <div id="status">laster…</div>
@@ -2319,6 +2334,25 @@ PAGE = """<!doctype html>
   rent logisk (f.eks. sporfelt som simuleres til sensorene er koblet).
   I2C-forvalgene er kun forslag — enhver PCA9685 kan drive enhver
   utgang, og en node kan ha flere av hver brikke.</p>
+</section>
+<section id="view-kabling" style="display:none">
+  <div class="card">
+    <h2>Kabling</h2>
+    <p class="hint">Samme bindinger som på Objekter-siden, lest fra
+    motsatt kant: node → brikke → port. Her ser du hva som ligger hvor,
+    hvilke porter som er ledige, og hvor mye av nodens 40 ordrepunkter
+    som er brukt. Et signal med flere lamper opptar PÅFØLGENDE kanaler
+    fra bindingsporten — de vises som ett spenn, så du ikke legger noe
+    annet oppi.</p>
+    <div class="bar" style="margin:6px 0">
+      <label class="hint" style="cursor:pointer">
+        <input type="checkbox" id="kb-alle" onchange="kbRender()">
+        vis også tomme brikker</label>
+      <span class="hint">Klikk et objekt for å redigere det på
+      Objekter-siden.</span>
+    </div>
+    <pre id="kb-tre" class="kabtre"></pre>
+  </div>
 </section>
 <section id="view-forrigling" style="display:none">
   <div class="card">
@@ -3584,15 +3618,150 @@ function oppdaterStatus() {
   d.push(`${STATUS.noder} ${STATUS.noder === 1 ? "node" : "noder"} online`);
   document.getElementById("status").textContent = d.join(" · ");
 }
+// ==================== KABLING ====================
+// Samme bindinger som objektlista, lest fra motsatt kant: node ->
+// brikke -> port. Det er den fysiske arbeidsrekkefølgen — man sitter
+// ved én node og fyller portene dens — og det er den eneste
+// visningen som kan svare på «hvilke porter er ledige?» og vise at et
+// signal med tre lamper spiser tre påfølgende kanaler.
+//
+// LESEVISNING. Redigering skjer fortsatt på Objekter-siden, som eier
+// lagringen (collect() leser DOM-en der). To steder å redigere fra
+// ville betydd to kilder til sannhet for hva som lagres.
+let KBFN = [], KBNODER = {}, KBSIGT = {};
+async function kbLoad() {
+  const h = await (await fetch("/api/hal")).json();
+  KBFN = h.functions || [];
+  KBNODER = h.noder || {};
+  KBSIGT = h.signaltyper || {};   // lampeantall -> portspenn
+  kbRender();
+}
+// Alle bindinger samlet per (node, brikke, port). En binding kan
+// dekke FLERE porter: signaler legger lampene på påfølgende kanaler
+// fra bindingsporten, så lampe 2 og 3 er opptatt uten å stå noe sted.
+function kbKart(signaltyper) {
+  const kart = {};      // node -> i2c -> port -> [{...}]
+  const ordrer = {};    // node -> ordrepunkter (samme regning som master)
+  for (const f of KBFN) {
+    const st = (signaltyper || {})[f.type];
+    for (const b of f.bindinger || []) {
+      const nd = (b.node || "").trim();
+      if (!nd) continue;
+      const n = (st && (b.sted === "anlegg" || b.sted === "panel"))
+                  ? (st.lamper || 1) : 1;
+      const inn = erInngang(b.sted) ||
+                  (f.type === "inngang" && b.sted === "anlegg");
+      if (!inn) ordrer[nd] = (ordrer[nd] || 0) + n;
+      else if (b.i2c === "gpio") ordrer[nd] = (ordrer[nd] || 0) + 1;
+      const p0 = parseInt(b.port) || 0;
+      for (let k = 0; k < n; k++) {
+        ((kart[nd] = kart[nd] || {})[b.i2c] =
+           kart[nd][b.i2c] || {})[p0 + k] =
+          (kart[nd][b.i2c][p0 + k] || []).concat([
+            {litra: f.id, type: f.type, sted: b.sted,
+             del: k, av: n, inn}]);
+      }
+    }
+  }
+  return {kart, ordrer};
+}
+const KB_BRIKKER = ["0x40","0x41","0x42","0x43",
+                    "0x20","0x21","0x22","0x23","gpio"];
+function kbBrikkeNavn(a) {
+  if (a === "gpio") return "GPIO på noden · 6 porter";
+  return a.startsWith("0x4") ? a + " PCA9685 · 16 utganger"
+                             : a + " PCF8574 · 8 innganger";
+}
+function kbRender() {
+  const visAlle = document.getElementById("kb-alle").checked;
+  const st = KBSIGT;
+  const {kart, ordrer} = kbKart(st);
+  const navn = Object.keys(KBNODER);
+  // Noder uten kallenavn, men med bindinger, skal likevel vises
+  for (const nd of Object.keys(kart)) if (!navn.includes(nd)) navn.push(nd);
+  if (!navn.length) {
+    document.getElementById("kb-tre").textContent =
+      "Ingen noder definert ennå — gi nodene kallenavn på System-siden.";
+    return;
+  }
+  let ut = "";
+  for (const nd of navn) {
+    const mac = (KBNODER[nd] || {}).mac || "ukjent MAC";
+    const brukt = ordrer[nd] || 0;
+    ut += `<b>${attr(nd)}</b> <span class="kb-dim">· ${attr(mac)} · ` +
+          `${brukt} av 40 ordrepunkter</span>\\n`;
+    const brikker = KB_BRIKKER.filter(a =>
+      visAlle || (kart[nd] && kart[nd][a]));
+    if (!brikker.length) {
+      ut += `   <span class="kb-dim">ingen porter bundet ennå</span>\\n`;
+    }
+    brikker.forEach((a, bi) => {
+      const sist = bi === brikker.length - 1;
+      const gren = sist ? "└─" : "├─";
+      const strek = sist ? "  " : "│ ";
+      const porter = (kart[nd] || {})[a] || {};
+      const ant = Object.keys(porter).length;
+      ut += `${gren} <span class="kb-brikke">${kbBrikkeNavn(a)}</span>` +
+            (ant ? `<span class="kb-dim"> · ${ant} i bruk</span>` : "") +
+            `\\n`;
+      const kap = a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
+      for (let p = 0; p < kap; p++) {
+        const her = porter[p];
+        const nr = String(p).padStart(2, " ");
+        if (!her) {
+          if (visAlle || ant)
+            ut += `${strek}  ${nr} <span class="kb-ledig">○  ledig</span>\\n`;
+          continue;
+        }
+        // Konflikt: to bindinger på samme port der minst én er utgang
+        const konflikt = her.length > 1 && her.some(x => !x.inn);
+        const tekst = her.map(x => {
+          const spenn = x.av > 1 ? ` (lampe ${x.del + 1} av ${x.av})` : "";
+          return `<a class="kb-obj" onclick="kbGaaTil('${attr(x.litra)}',` +
+                 `'${attr(x.type)}')">${attr(x.litra)}</a> ` +
+                 `<span class="kb-dim">${attr(x.type)} · ${attr(x.sted)}` +
+                 `${spenn}</span>`;
+        }).join("  +  ");
+        const kule = konflikt ? `<span class="kb-konflikt">✕</span>`
+                    : her[0].inn ? `<span class="retn-inn">●</span>`
+                                 : `<span class="retn-ut">●</span>`;
+        ut += `${strek}  ${nr} ${kule}  ${tekst}` +
+              (konflikt ? ` <span class="kb-konflikt">← KOLLISJON</span>` : "") +
+              `\\n`;
+      }
+    });
+    ut += "\\n";
+  }
+  document.getElementById("kb-tre").innerHTML = ut;
+}
+// Hopp til objektet på Objekter-siden, utfoldet
+function kbGaaTil(litra, type) {
+  const knapp = [...document.querySelectorAll(".tab")]
+    .find(b => b.textContent.trim() === "Objekter");
+  showView("hal", knapp);
+  for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow")) {
+    if (tr.querySelector(".f-id").value !== litra) continue;
+    if (tr.querySelector(".f-type").value !== type) continue;
+    RADAAPEN.add(tr.dataset.rid);
+    const gi = gruppeIdx(type);
+    COLLAPSED.delete(gi);
+    grpOppdater();
+    tr.scrollIntoView({block: "center"});
+    tr.style.outline = "2px solid var(--acc)";
+    setTimeout(() => { tr.style.outline = ""; }, 1600);
+    return;
+  }
+}
 function showView(v, btn) {
   currentView = v;
-  for (const name of ["hal", "forrigling", "noder"])
+  for (const name of ["hal", "forrigling", "noder", "kabling"])
     document.getElementById("view-" + name).style.display =
       v === name ? "" : "none";
   document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
   if (v === "noder") renderNoder();
   if (v === "forrigling") frLoad();
+  if (v === "kabling") kbLoad();
 }
 // litra-etikett per (mac, i2c-adresse, port) fra HAL-tabellen
 // GPIO-porter bundet som INNGANG på en gitt node — speiler masterens
@@ -4749,7 +4918,7 @@ function frSkisse() {
   if (tokKart.length) {
     const rx = new RegExp(tokKart.map(([t]) =>
       t.replace(/[.*?^$()|[\\]{}\\\\]/g, "\\\\$&")).join("|"), "g");
-    el.innerHTML = esc(linjer.join("\\n")).replace(rx, m =>
+    el.innerHTML = attr(linjer.join("\\n")).replace(rx, m =>
       '<span class="' + kls[m] + '">' + m + "</span>");
   } else {
     el.textContent = linjer.join("\\n");
