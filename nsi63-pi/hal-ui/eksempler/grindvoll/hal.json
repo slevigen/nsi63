@@ -1,0 +1,401 @@
+{
+  "version": "2026-08-21 14:45:00",
+  "updated": "2026-08-21T14:45:00+00:00",
+  "functions": [
+    {
+      "id": "01",
+      "type": "sporfelt",
+      "rolle": "togspor",
+      "notes": "Spor I — hovedtogsporet.",
+      "bindinger": []
+    },
+    {
+      "id": "02",
+      "type": "sporfelt",
+      "rolle": "togspor",
+      "notes": "Spor II — kryssingssporet.",
+      "bindinger": []
+    },
+    {
+      "id": "3",
+      "type": "sporfelt",
+      "rolle": "spor",
+      "notes": "Sidesporet (Km 65,850) — utenfor forriglingen, vernet av Sp.I.",
+      "bindinger": []
+    },
+    {
+      "id": "1",
+      "type": "sporfelt",
+      "rolle": "",
+      "notes": "Vestre sporvekselfelt (veksel 1).",
+      "bindinger": []
+    },
+    {
+      "id": "2",
+      "type": "sporfelt",
+      "rolle": "",
+      "notes": "Østre sporvekselfelt (veksel 2).",
+      "bindinger": []
+    },
+    {
+      "id": "A",
+      "type": "sporfelt",
+      "rolle": "linjefelt",
+      "side": "v",
+      "linjeblokk": true,
+      "notes": "Linja mot Roa.",
+      "bindinger": []
+    },
+    {
+      "id": "B",
+      "type": "sporfelt",
+      "rolle": "linjefelt",
+      "side": "h",
+      "linjeblokk": true,
+      "notes": "Linja mot Jevnaker.",
+      "bindinger": []
+    },
+    {
+      "id": "1",
+      "type": "sporveksel",
+      "spiss": "v",
+      "pluss_til": "01",
+      "minus_til": "veksel 3",
+      "spiss_til": "",
+      "avvik_ben": "",
+      "notes": "Vestre hovedveksel, sentralstilt (CTC).",
+      "bindinger": []
+    },
+    {
+      "id": "2",
+      "type": "sporveksel",
+      "spiss": "h",
+      "pluss_til": "01",
+      "minus_til": "veksel 4",
+      "spiss_til": "",
+      "avvik_ben": "",
+      "notes": "Østre hovedveksel, sentralstilt (CTC).",
+      "bindinger": []
+    },
+    {
+      "id": "3",
+      "type": "sporveksel",
+      "spiss": "v",
+      "pluss_til": "02",
+      "minus_til": "3",
+      "spiss_til": "veksel 1",
+      "avvik_ben": "pluss",
+      "notes": "Håndveksel i vestgata, S.lås I. Pluss mot spor II, avvik opp til sidesporet.",
+      "bindinger": []
+    },
+    {
+      "id": "4",
+      "type": "sporveksel",
+      "spiss": "h",
+      "pluss_til": "02",
+      "minus_til": "veksel 5",
+      "spiss_til": "veksel 2",
+      "avvik_ben": "pluss",
+      "notes": "Håndveksel i østgata, S.lås II. Pluss mot spor II.",
+      "bindinger": []
+    },
+    {
+      "id": "5",
+      "type": "sporveksel",
+      "spiss": "h",
+      "pluss_til": "3",
+      "minus_til": "6",
+      "spiss_til": "veksel 4",
+      "avvik_ben": "spiss",
+      "notes": "Håndveksel i sidesporraden (østenden), S.lås II. Greinene i linje: sidesporet vest, buttstubb øst (+); stammen krummer ned mot veksel 4.",
+      "bindinger": []
+    },
+    {
+      "id": "SpI",
+      "type": "sporsperre",
+      "ligger_i": "3",
+      "navn": "Sp. I",
+      "notes": "Sporsperre I på sidesporet rett øst for veksel 3. Låst av S.lås I.",
+      "bindinger": []
+    },
+    {
+      "id": "S1",
+      "type": "samlelaas",
+      "navn": "S.lås I",
+      "omfatter": [
+        "3",
+        "SpI"
+      ],
+      "sperrer": [],
+      "notes": "Kontrollås for veksel 3 og sporsperre I. Nøkkel Z 917 (Kl/Z917 på planen).",
+      "bindinger": []
+    },
+    {
+      "id": "S2",
+      "type": "samlelaas",
+      "navn": "S.lås II",
+      "omfatter": [
+        "4",
+        "5"
+      ],
+      "sperrer": [],
+      "notes": "Kontrollås for veksel 4 og 5.",
+      "bindinger": []
+    },
+    {
+      "id": "A",
+      "type": "hovedsignal3",
+      "rolle": "innkjor",
+      "linjefelt": "A",
+      "notes": "Innkjør fra Roa.",
+      "bindinger": []
+    },
+    {
+      "id": "B",
+      "type": "hovedsignal3",
+      "rolle": "innkjor",
+      "linjefelt": "B",
+      "notes": "Innkjør fra Jevnaker.",
+      "bindinger": []
+    },
+    {
+      "id": "M",
+      "type": "hovedsignal3",
+      "rolle": "utkjor",
+      "linjefelt": "A",
+      "notes": "Utkjør fra spor I mot Roa.",
+      "bindinger": []
+    },
+    {
+      "id": "O",
+      "type": "hovedsignal2",
+      "rolle": "utkjor",
+      "linjefelt": "A",
+      "notes": "Utkjør fra spor II mot Roa (tolys).",
+      "bindinger": []
+    },
+    {
+      "id": "L",
+      "type": "hovedsignal3",
+      "rolle": "utkjor",
+      "linjefelt": "B",
+      "notes": "Utkjør fra spor I mot Jevnaker.",
+      "bindinger": []
+    },
+    {
+      "id": "N",
+      "type": "hovedsignal2",
+      "rolle": "utkjor",
+      "linjefelt": "B",
+      "notes": "Utkjør fra spor II mot Jevnaker (tolys).",
+      "bindinger": []
+    },
+    {
+      "id": "A",
+      "type": "forsignal2",
+      "varsler_om": "A",
+      "notes": "Frittstående forsignal vest (A 1/2 på planen).",
+      "bindinger": []
+    },
+    {
+      "id": "B",
+      "type": "forsignal2",
+      "varsler_om": "B",
+      "notes": "Frittstående forsignal øst (B 1/2).",
+      "bindinger": []
+    },
+    {
+      "id": "L",
+      "type": "forsignal2",
+      "montert_med": "A",
+      "varsler_om": "L",
+      "notes": "Forsignal L/N på A-masten — dynamisk referanse velger L eller N etter togveiens spor.",
+      "bindinger": []
+    },
+    {
+      "id": "M",
+      "type": "forsignal2",
+      "montert_med": "B",
+      "varsler_om": "M",
+      "notes": "Forsignal M/O på B-masten — dynamisk referanse velger M eller O.",
+      "bindinger": []
+    },
+    {
+      "id": "ZM",
+      "type": "skiftesignal2",
+      "skift_sporveksler": [
+        "1"
+      ],
+      "notes": "Høyt skiftesignal vest, egen mast med middelkontroll (ZM, midd.ktr.). Gjelder veksel 1.",
+      "bindinger": []
+    },
+    {
+      "id": "ZL",
+      "type": "skiftesignal2",
+      "skift_sporveksler": [
+        "2"
+      ],
+      "notes": "Høyt skiftesignal øst, egen mast med middelkontroll (ZL, midd.ktr.). Gjelder veksel 2.",
+      "bindinger": []
+    },
+    {
+      "id": "6",
+      "type": "sporfelt",
+      "rolle": "spor",
+      "notes": "Buttstubben øst for veksel 5 (normalstillingens dekning).",
+      "bindinger": []
+    }
+  ],
+  "signaltyper": {
+    "hovedsignal3": {
+      "lamper": 3,
+      "normalbilde": "stopp",
+      "bilder": {
+        "stopp-blink": [
+          "av",
+          "blink",
+          "av"
+        ],
+        "stopp": [
+          "av",
+          "pa",
+          "av"
+        ],
+        "kjor-redusert": [
+          "pa",
+          "av",
+          "av"
+        ],
+        "kjor": [
+          "pa",
+          "av",
+          "pa"
+        ]
+      },
+      "signalnr": {
+        "stopp-blink": "20A",
+        "stopp": "20B",
+        "kjor-redusert": "21",
+        "kjor": "22"
+      },
+      "klasse": "hovedsignal"
+    },
+    "forsignal2": {
+      "lamper": 2,
+      "normalbilde": "forvent-stopp",
+      "bilder": {
+        "forvent-stopp": [
+          "blink",
+          "av"
+        ],
+        "forvent-kjor-redusert": [
+          "blink",
+          "blink"
+        ],
+        "forvent-kjor": [
+          "av",
+          "blink"
+        ],
+        "slukket": [
+          "av",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "forvent-stopp": "23",
+        "forvent-kjor-redusert": "24",
+        "forvent-kjor": "25"
+      },
+      "folger": {
+        "stopp": "forvent-stopp",
+        "stopp-blink": "forvent-stopp",
+        "kjor": "forvent-kjor",
+        "kjor-redusert": "forvent-kjor-redusert"
+      },
+      "klasse": "forsignal"
+    },
+    "skiftesignal1": {
+      "lamper": 1,
+      "normalbilde": "slukket",
+      "bilder": {
+        "skifting-tillatt": [
+          "pa"
+        ],
+        "slukket": [
+          "av"
+        ]
+      },
+      "klasse": "skiftesignal"
+    },
+    "hovedsignal2": {
+      "lamper": 2,
+      "normalbilde": "stopp",
+      "bilder": {
+        "stopp": [
+          "av",
+          "pa"
+        ],
+        "kjor-redusert": [
+          "pa",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "stopp": "20B",
+        "kjor-redusert": "21"
+      },
+      "klasse": "hovedsignal"
+    },
+    "dvergsignal3": {
+      "klasse": "dvergsignal",
+      "lamper": 3,
+      "normalbilde": "kjoring-forbudt",
+      "bilder": {
+        "kjoring-forbudt": [
+          "av",
+          "pa",
+          "pa"
+        ],
+        "varsom-kjoring": [
+          "pa",
+          "av",
+          "pa"
+        ],
+        "kjoring-tillatt": [
+          "pa",
+          "pa",
+          "av"
+        ],
+        "frigitt-lokal": [
+          "av",
+          "blink",
+          "pa"
+        ]
+      }
+    },
+    "skiftesignal2": {
+      "klasse": "skiftesignal",
+      "lamper": 2,
+      "normalbilde": "slukket",
+      "bilder": {
+        "skifting-forbudt": [
+          "av",
+          "pa"
+        ],
+        "skifting-tillatt": [
+          "pa",
+          "av"
+        ],
+        "slukket": [
+          "av",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "skifting-forbudt": "41",
+        "skifting-tillatt": "42"
+      }
+    }
+  },
+  "noder": []
+}

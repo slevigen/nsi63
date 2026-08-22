@@ -1,0 +1,2054 @@
+<!DOCTYPE html>
+<!-- NSI63 digitalt stillerapparat — MILEPÆL 1: TEKSTPANELET.
+     Se STILLERAPPARAT.md. Helt uten grafikk, men fullt fungerende:
+     ren MQTT-klient over WebSocket rett mot mosquitto (port 9001) —
+     Flask serverer bare denne fila og mqtt.min.js, og er ellers ikke
+     i løypa. Panelet SELVKONFIGURERES fra retained config-temaer
+     (nsi63/config/hal + forrigling + anlegg) og har ingen egen
+     autoritet: all betjening publiseres til de samme temaene som
+     HAL-UI og det fysiske apparatet, og forrigles av master.
+     Mistes forbindelsen: fail-safe FRAKOBLET-overlegg umiddelbart. -->
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>NSI63 — stillerapparat</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: #191b1e; color: #d7d9dc;
+         font: 15px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+         padding-bottom: 90px; }
+  header { position: sticky; top: 0; z-index: 5; background: #101214;
+           padding: 10px 14px; display: flex; align-items: baseline;
+           gap: 12px; border-bottom: 1px solid #2c2f33; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .5px; }
+  .hint { color: #8b9096; font-size: 12.5px; }
+  section { margin: 10px 12px; background: #202327; border-radius: 10px;
+            padding: 10px 12px; }
+  h2 { font-size: 13px; margin: 0 0 6px; color: #9aa0a7;
+       text-transform: uppercase; letter-spacing: 1px; }
+  .rad { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+         padding: 7px 0; border-top: 1px solid #2c2f33; }
+  .rad:first-of-type { border-top: 0; }
+  .litra { font-weight: 700; min-width: 52px; font-size: 16px; }
+  .st { min-width: 110px; font-family: ui-monospace, Menlo, monospace;
+        font-size: 14px; }
+  .st.ledig  { color: #6f757c; }
+  .st.aktiv  { color: #5bb974; }
+  .st.varsel { color: #e0c23c; animation: blinkA 1s step-start infinite; }
+  .st.roed   { color: #e05252; }
+  @keyframes blinkA { 50% { opacity: .15; } }  /* 1 Hz, 1:1 — forbildet */
+  button { background: #2c3036; color: #e8eaec;
+           border: 1px solid #43484e; border-radius: 8px;
+           font-size: 14.5px; padding: 10px 14px; min-height: 44px;
+           min-width: 64px; touch-action: manipulation;
+           user-select: none; -webkit-user-select: none; }
+  button:active { background: #4a5058; }
+  .info { flex-basis: 100%; font-size: 12.5px; color: #b9a44c;
+          font-family: ui-monospace, Menlo, monospace; min-height: 1em; }
+  #logg { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+          color: #8b9096; white-space: pre-wrap; }
+  /* ---- sporplanen (milepæl 2, plassholderblokker) ----
+     Kontrakt mot Truls' blokkbibliotek: modul 100×60, sporlinjen i
+     y=30, inn/ut på modulkanten, lampelinser som egne objekter
+     tegnet i tent farge (klassene under mørker/blinker dem). Hver
+     plassholderblokk er én funksjon (pbl.*) — kunstverket byttes
+     inn blokk for blokk uten å røre komposisjonen. */
+  @font-face {   /* skiltfonten — servert lokalt av Flask */
+    font-family: "Routed Gothic";
+    src: url("/panel/routed-gothic.ttf") format("truetype");
+  }
+  /* Hvit flate som apparatet; grå spor, svart tekst. Slukket lampe
+     er mørk linse; tent lampe = currentColor. Alle lamper r=6. */
+  #plansvg { width: 100%; height: auto; display: block;
+             background: #fff; border-radius: 8px; }
+  /* Slukket linse = mørk grå med et HINT av lampens egen farge —
+     lav fargeandel (16 %) så mørk gul ikke slår over i brunt;
+     eldre motorer faller tilbake på flat mørk. */
+  .pl { fill: #26282c;
+        fill: color-mix(in srgb, currentColor 16%, #191b1f);
+        stroke: #33363a; stroke-width: 1; }
+  .pl.pa { fill: currentColor; }
+  /* Blink drives av ÉN felles fase-klokke (JS toggler body.blinkfase)
+     — som forbildets ene blinkapparat: alle blinkende lamper i hele
+     anlegget lyser og slukker SAMTIDIG. CSS-animasjon per element
+     ville startet på klassetildelingen og gitt utakt. Mørkfasen er
+     samme mørke farge som slukket linse. */
+  body.blinkfase .pl.blink { fill: currentColor; }
+  .plspor { stroke: #8d9094; stroke-width: 12; fill: none;
+            stroke-linecap: butt; }   /* like tykk som lampene, rette ender */
+  .pltekst { fill: #111; font: 12px "Routed Gothic",
+             ui-monospace, Menlo, monospace; }
+  .plnavn { fill: #111; font: 11px "Routed Gothic",
+            -apple-system, sans-serif; }
+  .plklikk { cursor: pointer; }
+  /* togveistilleren: RØD knott (fasit fra apparatet) med dyttgest —
+     klikk venstre/høyre halvdel dytter, knotten fjærer tilbake */
+  .pltvs { cursor: pointer; }
+  /* den sorte trykknappen (meldeknappen) ved linjefeltet: kvitterer
+     varselklokka og løser ut innkjørtogvei som venter på kvittering */
+  .plknapp { cursor: pointer; }
+  .plknapp .knhode { fill: #111; stroke: #585b60; stroke-width: 1.5; }
+  /* betjeningsfeltet (grønn flate under transparenten) */
+  .bs { cursor: pointer; }
+  .bs .bskn { transition: transform .12s ease-out; }
+  .bsnavn { fill: #f2efe4; font: 10px "Routed Gothic",
+            "Share Tech Mono", monospace; text-anchor: middle; }
+  .bstegn { fill: #f2efe4; font: 13px "Routed Gothic",
+            "Share Tech Mono", monospace; text-anchor: middle; }
+  .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1.5;
+                  transition: transform .12s ease-out; }
+  /* skille mellom sporfelt i forriglingen: svart tverrstrek i båndet */
+  .plskille { fill: #111; }
+  #frakoblet { position: fixed; inset: 0; z-index: 50;
+               background: rgba(10,10,12,.88); display: none;
+               align-items: center; justify-content: center;
+               font-size: 34px; font-weight: 800; letter-spacing: 3px;
+               color: #e05252; text-align: center; }
+  body.dod #frakoblet { display: flex; }
+  body.dod main { filter: grayscale(1) brightness(.6); }
+</style>
+</head>
+<body class="dod">
+<header>
+  <h1 id="tittel">NSI63 — stillerapparat</h1>
+  <span class="hint" id="substatus">kobler til …</span>
+</header>
+<main id="hoved">
+  <section><p class="hint">Venter på konfigurasjon fra brokeren
+  (retained <code>nsi63/config/…</code>) — kommer normalt i løpet av
+  et sekund etter tilkobling.</p></section>
+</main>
+<div id="frakoblet">FRAKOBLET<br>
+  <span style="font-size:15px;font-weight:400;color:#d7d9dc">
+  panelet viser ikke gyldig tilstand</span></div>
+
+<script src="/panel/mqtt.js"></script>
+<script>
+"use strict";
+/* ---------- tilstand ---------- */
+const ROT = "nsi63/";
+const K = { hal: null, fr: null, anlegg: null };   // konfigene
+const TIL = {};        // tema (uten rot) -> siste payload
+const BIND = {};       // tema -> [oppdateringsfunksjoner]
+let bygget = false;
+
+/* ---------- MQTT ---------- */
+const klient = mqtt.connect("ws://" + location.hostname + ":9001",
+                            { reconnectPeriod: 2000, keepalive: 20 });
+klient.on("connect", () => {
+  dod(false);
+  klient.subscribe(ROT + "#");
+});
+["close", "offline", "error"].forEach(e => klient.on(e, () => dod(true)));
+function dod(erDod) {
+  document.body.classList.toggle("dod", erDod);
+  document.getElementById("substatus").textContent =
+    erDod ? "" : "tilkoblet " + location.hostname;
+}
+function pub(tema, pl) { klient.publish(ROT + tema, String(pl)); }
+
+klient.on("message", (tema, rå) => {
+  tema = tema.slice(ROT.length);
+  const pl = rå.toString();
+  if (tema === "config/hal")        { K.hal = trygJson(pl); bygg(); return; }
+  if (tema === "config/forrigling") { K.fr = trygJson(pl); bygg(); return; }
+  if (tema === "config/anlegg")     { K.anlegg = trygJson(pl); titt(); return; }
+  TIL[tema] = pl;
+  (BIND[tema] || []).forEach(f => f(pl));
+  if (tema.endsWith("/info") || tema === "master/melding") logg(tema, pl);
+  if (tema === "master/status") mstat(pl);
+});
+function trygJson(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+function titt() {
+  const id = (K.anlegg && K.anlegg.id) || "";
+  document.getElementById("tittel").textContent =
+    "NSI63" + (id ? " " + id : "") + " — stillerapparat";
+  document.title = document.getElementById("tittel").textContent;
+}
+function mstat(s) {
+  if (s !== "online") logg("master/status", s);
+}
+
+/* ---------- logg (nederst) ---------- */
+const LOGG = [];
+function logg(tema, pl) {
+  const t = new Date();
+  const ts = String(t.getHours()).padStart(2, "0") + ":" +
+             String(t.getMinutes()).padStart(2, "0") + ":" +
+             String(t.getSeconds()).padStart(2, "0");
+  LOGG.push(ts + "  " + tema + "  " + pl);
+  if (LOGG.length > 8) LOGG.shift();
+  const el = document.getElementById("logg");
+  if (el) el.textContent = LOGG.join("\n");
+}
+
+/* ---------- bygging fra konfig ---------- */
+function bygg() {
+  if (!K.hal || !K.fr) return;
+  bygget = true;
+  for (const k in BIND) delete BIND[k];
+  const fns = K.hal.functions || [];
+  const st = K.hal.signaltyper || {};
+  const klasse = t => (st[t] && st[t].klasse) ||
+    (String(t).startsWith("hovedsignal") ? "hovedsignal"
+     : String(t).startsWith("forsignal") ? "forsignal"
+     : String(t).startsWith("skiftesignal") ? "skiftesignal"
+     : String(t).startsWith("dvergsignal") ? "dvergsignal" : null);
+  const nr = (type, bilde) =>
+    (st[type] && st[type].signalnr && st[type].signalnr[bilde])
+      ? st[type].signalnr[bilde] + " " : "";
+
+  const veksler = fns.filter(f => String(f.type).startsWith("sporveksel"));
+  const sperrer = fns.filter(f => f.type === "sporsperre");
+  const laaser = fns.filter(f => f.type === "samlelaas");
+  const rigler = fns.filter(f => f.type === "rigel");
+  const laasFor = {};   // objektlitra -> låsen (samlelås/rigel) som omfatter det
+  for (const l of laaser.concat(rigler))
+    for (const vl of (l.omfatter || [])) laasFor[vl] = l;
+  const skift = fns.filter(f => String(f.type).startsWith("skiftesignal"));
+  const signaler = fns.filter(f =>
+    ["hovedsignal", "forsignal", "dvergsignal"].includes(klasse(f.type)));
+  const felt = fns.filter(f => f.type === "sporfelt");
+  const varselfelt = felt.filter(f => f.rolle === "varselfelt");
+  const togveier = (K.fr.togveier || []).map(tv => tv.id);
+
+  let h = "";
+
+  /* Sporplanen — milepæl 2-skjelettet: komposisjonsmotor + plass-
+     holderblokker. Feiler komposisjonen, forsvinner bare planen —
+     tekstflaten under er alltid komplett. */
+  h += `<section><h2>Sporplan
+    <button style="float:right" onclick="lagreSvg()"
+      title="Last ned sporplanen som frittstående SVG-fil — alle lamper tent, skiltfonten innbakt">Lagre SVG</button></h2>
+    <div id="planholder"></div></section>`;
+
+  /* Togveier — instruksens betjening som knapper */
+  h += `<section><h2>Togveier</h2>`;
+  for (const id of togveier) {
+    h += `<div class="rad"><span class="litra">${id}</span>
+      <span class="st" data-b="togvei/${id}/state">–</span>
+      <button onclick="pub('togvei/${id}/set','sikre')">Sikre</button>
+      <button onclick="pub('togvei/${id}/set','stopp')"
+        title="Hjelpeutløsning trinn 1: signal i stopp, fortsatt forriglet">Stopp</button>
+      <button onclick="pub('togvei/${id}/set','hjelpeutlos')"
+        title="Hjelpeutløsning trinn 2: løser ut (krever signal i stopp)">Utløs</button>
+      <button data-kv="${id}" style="opacity:.35"
+        onclick="pub('togvei/${id}/set','kvitter')"
+        title="Sistevognskontroll (instruksens VI): virker BARE når togveien står i klar-utlos — dvs. etter at utløsningsfeltet har vært belagt og blitt fritt igjen. Ellers svarer master «venter ikke paa sistevognskontroll».">Kvitter</button>
+      <span class="info" data-b="togvei/${id}/info"></span></div>`;
+    bind(`togvei/${id}/state`, (v, el) => {
+      el.textContent = v;
+      el.className = "st " + (
+        v === "ledig" ? "ledig" :
+        v === "aktiv" ? "aktiv" :
+        v === "klar-utlos" || v === "sikring" || v === "hjelpeutlosning"
+          ? "varsel" : "");
+      // Kvitter-knappen er bare meningsfull i klar-utlos — dimmes
+      // ellers (fortsatt klikkbar: master svarer og forklarer)
+      document.querySelectorAll(`[data-kv="${id}"]`).forEach(b => {
+        b.style.opacity = (v === "klar-utlos") ? "1" : ".35";
+      });
+    });
+    bindInfo(`togvei/${id}/info`);
+  }
+  h += `</section>`;
+
+  /* Sporveksler */
+  h += `<section><h2>Sporveksler</h2>`;
+  for (const v of veksler) {
+    // Har vekselen tungekontroll (stillingssensorer i HAL)? Uten
+    // sensorer BEKREFTER master omleggingen automatisk etter 1,5 s —
+    // «normal»/«avvik» er da en ANTATT stilling, og det skal synes.
+    const harSens = (v.bindinger || []).some(b =>
+      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
+    h += `<div class="rad"><span class="litra">${v.id}</span>
+      <span class="st" data-b="sporveksel/${v.id}/state">–</span>
+      <button onclick="pub('sporveksel/${v.id}/set','normal')">Normal</button>
+      <button onclick="pub('sporveksel/${v.id}/set','avvik')">Avvik</button>` +
+      (harSens ? `` : `<span class="hint"
+        title="Vekselen har ingen sensor-normal/sensor-avvik-bindinger i HAL. Master bekrefter omleggingen på tid (1,5 s) — stillingen er kommandert, ikke kontrollert.">uten tungekontroll — stilling antas</span>`) +
+      (laasFor[v.id] ? `<span class="hint" data-sl="${laasFor[v.id].id}"
+        title="Vekselen ligger i virkeområdet til samlelåsen ${laasFor[v.id].navn || laasFor[v.id].id} — sperret lås avviser all omlegging"></span>` : ``) +
+      `<span class="info" data-b="sporveksel/${v.id}/info"></span></div>`;
+    bindSt(`sporveksel/${v.id}/state`, s =>
+      s === "feil" ? "roed" : s === "omlegging" ? "varsel"
+      : s === "ukjent" ? "varsel" : "");
+    bindInfo(`sporveksel/${v.id}/info`);
+  }
+  /* Sporsperrer — deler vekselmaskineriet; pålagt er normalstillingen
+     (dekningen). Omlegging gates av samlelåsen/rigelen som eier dem. */
+  for (const sp of sperrer) {
+    const harSens = (sp.bindinger || []).some(b =>
+      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
+    h += `<div class="rad"><span class="litra">${sp.id}</span>
+      <span class="st" data-b="sporsperre/${sp.id}/state">–</span>
+      <button onclick="pub('sporsperre/${sp.id}/set','paalagt')"
+        title="Normalstillingen — sporet sperret (dekningen togveiene krever)">Pålagt</button>
+      <button onclick="pub('sporsperre/${sp.id}/set','avlagt')">Avlagt</button>` +
+      (harSens ? `` : `<span class="hint"
+        title="Sperren har ingen sensor-bindinger i HAL. Master bekrefter omleggingen på tid (1,5 s) — stillingen er kommandert, ikke kontrollert.">uten kontroll — stilling antas</span>`) +
+      (laasFor[sp.id] ? `<span class="hint" data-sl="${laasFor[sp.id].id}"
+        title="Sperren ligger i virkeområdet til ${laasFor[sp.id].navn || laasFor[sp.id].id} — sperret lås avviser all omlegging"></span>` : ``) +
+      `<span class="info" data-b="sporsperre/${sp.id}/info"></span></div>`;
+    bindSt(`sporsperre/${sp.id}/state`, s =>
+      s === "feil" ? "roed" : s === "omlegging" ? "varsel"
+      : s === "ukjent" ? "varsel" : s === "avlagt" ? "varsel" : "");
+    bindInfo(`sporsperre/${sp.id}/info`);
+  }
+  h += `</section>`;
+
+  /* Samlelåser — elektrisk frigitte kontrollnøkler (SLAAS-RIGEL.md).
+     Sperret = nøkkelen i kontroll, vekslene låst (normaltilstanden).
+     Frigitt/nøkkel ute = togveiene i virkeområdet avvises. Nøkkel-
+     knappene simulerer nøkkelkontakten (benketesting) — «Sensor»
+     gir den fysiske kontakten tilbake. */
+  if (laaser.length || rigler.length) {
+    h += `<section><h2>Samlelåser og rigler <span class="hint">sperret
+      lås låser objektene — frigitt lås sperrer togveiene</span></h2>`;
+    for (const l of laaser) {
+      const navn = l.navn || l.id;
+      const omf = (l.omfatter || []).join(", ") || "(ingen objekter)";
+      const virke = (l.sperrer || []).length
+        ? "togveier til/fra " + l.sperrer.join(", ")
+        : "alle togveier (hele stasjonen)";
+      h += `<div class="rad"><span class="litra" title="${l.id}">${navn}</span>
+        <span class="st" data-b="samlelaas/${l.id}/state">–</span>
+        <button onclick="pub('samlelaas/${l.id}/set','frigi')"
+          title="Frigi nøkkelen elektrisk — avvises mens en togvei i virkeområdet er forriglet">Frigi</button>
+        <button onclick="pub('samlelaas/${l.id}/set','sperr')"
+          title="Ta frigivningen tilbake — med nøkkelkontakt sperrer låsen først når nøkkelen står i">Sperr</button>
+        <button onclick="pub('samlelaas/${l.id}/sim','ute')"
+          title="Simuler at nøkkelen tas ut av låsen. Ute uten frigivning = NØDUTLØSNING: kjørsignalene over virkeområdet felles straks.">Nøkkel ute</button>
+        <button onclick="pub('samlelaas/${l.id}/sim','inne')"
+          title="Simuler at nøkkelen settes inn igjen">Nøkkel inne</button>
+        <button onclick="pub('samlelaas/${l.id}/sim','auto')"
+          title="Slipp simuleringen — den fysiske nøkkelkontakten rår">Sensor</button>
+        <span class="hint" title="Objektene låsen omfatter · togveiene den sperrer">${omf} · ${virke}</span>
+        <span class="info" data-b="samlelaas/${l.id}/info"></span></div>`;
+      bindSt(`samlelaas/${l.id}/state`, v =>
+        v === "sperret" ? "ledig" : v === "frigitt" ? "varsel" : "roed");
+      bindInfo(`samlelaas/${l.id}/info`);
+      // merkelappen på vekselradene i virkeområdet følger tilstanden
+      (BIND[`samlelaas/${l.id}/state`] =
+       BIND[`samlelaas/${l.id}/state`] || []).push(pl => {
+        document.querySelectorAll(`[data-sl="${l.id}"]`).forEach(el => {
+          el.textContent = pl === "sperret" ? `låst av ${navn}`
+                         : pl === "frigitt" ? `frigitt (${navn})`
+                         : `nøkkel ute (${navn})`;
+        });
+      });
+    }
+    /* Rigler — direkte elektrisk lås, ingen nøkkel. Etterløpet (10 s
+       ved tilbaketaking) vises som egen tilstand; rigelen sperrer
+       først når alle objektene ligger i normalstilling igjen. */
+    for (const r of rigler) {
+      const navn = r.navn || r.id;
+      const omf = (r.omfatter || []).join(", ") || "(ingen objekter)";
+      const virke = (r.sperrer || []).length
+        ? "togveier til/fra " + r.sperrer.join(", ")
+        : "alle togveier (hele stasjonen)";
+      h += `<div class="rad"><span class="litra" title="${r.id}">${navn}</span>
+        <span class="st" data-b="rigel/${r.id}/state">–</span>
+        <button onclick="pub('rigel/${r.id}/set','frigi')"
+          title="Frigi rigelen — avvises mens en togvei i virkeområdet er forriglet. Frigitt kan sperren legges av og vekselen legges om.">Frigi</button>
+        <button onclick="pub('rigel/${r.id}/set','sperr')"
+          title="Ta frigivningen tilbake: 10 s etterløp, deretter sperrer rigelen når alle objektene ligger i normalstilling (pålagt sperre, veksel i normal)">Sperr</button>
+        <span class="hint" title="Objektene rigelen låser · togveiene den sperrer">${omf} · ${virke}</span>
+        <span class="info" data-b="rigel/${r.id}/info"></span></div>`;
+      bindSt(`rigel/${r.id}/state`, v =>
+        v === "sperret" ? "ledig" : v === "frigitt" ? "varsel" : "roed");
+      bindInfo(`rigel/${r.id}/info`);
+      (BIND[`rigel/${r.id}/state`] =
+       BIND[`rigel/${r.id}/state`] || []).push(pl => {
+        document.querySelectorAll(`[data-sl="${r.id}"]`).forEach(el => {
+          el.textContent = pl === "sperret" ? `låst av ${navn}`
+                         : pl === "frigitt" ? `frigitt (${navn})`
+                         : `etterløp (${navn})`;
+        });
+      });
+    }
+    h += `</section>`;
+  }
+
+  /* Høye skiftesignaler */
+  if (skift.length) {
+    h += `<section><h2>Høye skiftesignaler</h2>`;
+    for (const s of skift) {
+      // BETJENING via /set (gjennom forriglingen) — /sim er en
+      // benkeoverstyring som LÅSER bildet og kobler ut automatikken
+      // (41 under omlegging), og hører ikke hjemme på en knapp
+      h += `<div class="rad"><span class="litra">${s.id}</span>
+        <span class="st" data-b="skiftesignal/${s.id}/state">–</span>
+        <button onclick="pub('skiftesignal/${s.id}/set','skifting-tillatt')"
+          title="Slå på skiftingen: signal 42 — automatikken viser 41 mens en veksel i området legges om">Skifting tillatt</button>
+        <button onclick="pub('skiftesignal/${s.id}/set','slukket')"
+          title="Ta skiftingen tilbake: signalet slukkes (normalstillingen)">Avslutt skifting</button>
+        </div>`;
+      bindSt(`skiftesignal/${s.id}/state`,
+             v => v === "skifting-tillatt" ? "varsel"
+                : v === "skifting-forbudt" ? "roed" : "");
+    }
+    h += `</section>`;
+  }
+
+  /* Varselfelt — den sorte trykknappen */
+  if (varselfelt.length) {
+    h += `<section><h2>Varselfelt <span class="hint">tog i anmarsj —
+      sort trykknapp kvitterer</span></h2>`;
+    for (const f of varselfelt) {
+      h += `<div class="rad"><span class="litra">${f.id}</span>
+        <span class="st" data-b="varselfelt/${f.id}/state">–</span>
+        <button onclick="pub('varselfelt/${f.id}/kvitter','')"
+          style="background:#111;border-color:#666">⬤ Sort knapp</button>
+        </div>`;
+      bindSt(`varselfelt/${f.id}/state`,
+             v => v === "melding" ? "varsel" : "ledig");
+    }
+    h += `</section>`;
+  }
+
+  /* Signaler (visning) */
+  h += `<section><h2>Signaler</h2>`;
+  for (const s of signaler) {
+    const kl = klasse(s.type);
+    h += `<div class="rad"><span class="litra">${s.id}</span>
+      <span class="hint" style="min-width:82px">${kl}</span>
+      <span class="st" data-b="${kl}/${s.id}/state">–</span></div>`;
+    const type = s.type;
+    bind(`${kl}/${s.id}/state`, (v, el) => {
+      el.textContent = nr(type, v) + v;
+      el.className = "st " +
+        (v.startsWith("stopp") || v === "skifting-forbudt" ? "roed"
+         : v.startsWith("kjor") ? "aktiv" : "");
+    });
+  }
+  h += `</section>`;
+
+  /* Sporfelt — visning + simulering (benketesting: uten sensorer er
+     dette eneste måten å «kjøre tog» fra panelet, f.eks. for å nå
+     klar-utlos i sistevognskontrollen) */
+  h += `<section><h2>Sporfelt <span class="hint">simuleringsknappene
+    overstyrer sensorene — «Sensor» gir dem tilbake</span></h2>`;
+  for (const f of felt) {
+    h += `<div class="rad"><span class="litra">${f.id}</span>
+      <span class="hint" style="min-width:82px">${f.rolle || ""}</span>
+      <span class="st" data-b="sporfelt/${f.id}/state">–</span>
+      <button onclick="pub('sporfelt/${f.id}/sim','belagt')">Belagt</button>
+      <button onclick="pub('sporfelt/${f.id}/sim','fri')">Fritt</button>
+      <button onclick="pub('sporfelt/${f.id}/sim','av')"
+        title="Slipp simuleringen — sensorene rår igjen">Sensor</button>
+      </div>`;
+    bindSt(`sporfelt/${f.id}/state`, v => v === "belagt" ? "roed" : "ledig");
+  }
+  h += `</section>`;
+
+  /* Brytere */
+  h += `<section><h2>Brytere</h2>
+    <div class="rad"><span class="litra">Sign.stp</span>
+      <span class="st" data-b="master/signalstopp">–</span>
+      <button onclick="pub('signalstopp/sim','paa')">På</button>
+      <button onclick="pub('signalstopp/sim','av')">Av</button>
+      <button onclick="pub('signalstopp/sim','auto')"
+        title="Slipp simuleringen — den fysiske bryteren rår">Fysisk</button>
+    </div>
+    <div class="rad"><span class="litra">Lok v</span>
+      <span class="st" data-b="master/frigivning" data-del="venstre">–</span>
+      <button onclick="pub('frigivning/v/sim','paa')">Frigi</button>
+      <button onclick="pub('frigivning/v/sim','av')">Ta tilbake</button>
+      <button onclick="pub('frigivning/v/sim','auto')">Fysisk</button>
+    </div>
+    <div class="rad"><span class="litra">Lok h</span>
+      <span class="st" data-b="master/frigivning" data-del="hoyre">–</span>
+      <button onclick="pub('frigivning/h/sim','paa')">Frigi</button>
+      <button onclick="pub('frigivning/h/sim','av')">Ta tilbake</button>
+      <button onclick="pub('frigivning/h/sim','auto')">Fysisk</button>
+    </div>
+    <div class="rad"><span class="litra">Jord</span>
+      <span class="st" data-b="master/jord">–</span>
+      <button onclick="pub('jord/sim','trykk')">Jord-knappen</button>
+    </div></section>`;
+  bindSt("master/signalstopp", v => v === "paa" ? "roed" : "ledig");
+  bind("master/frigivning", (v, el) => {
+    const d = trygJson(v) || {};
+    el.textContent = d[el.dataset.del] ? "frigitt" : "normal";
+    el.className = "st " + (d[el.dataset.del] ? "varsel" : "ledig");
+  });
+  bindSt("master/jord", v => v === "sperret" ? "roed" : "ledig");
+
+  /* Hendelseslinje */
+  h += `<section><h2>Siste meldinger</h2><div id="logg"></div>
+    <p class="hint">Avvisninger begrunnes her og ved raden det
+    gjelder. Full historikk: hendelsesloggen i HAL-UI-et.</p></section>`;
+
+  document.getElementById("hoved").innerHTML = h;
+  try {
+    byggPlan(fns);
+  } catch (e) {
+    const ph = document.getElementById("planholder");
+    if (ph) ph.innerHTML =
+      `<span class="hint">sporplanen kunne ikke komponeres: ` +
+      `${e.message} — tekstflaten under gjelder</span>`;
+  }
+  // Re-spill kjente tilstander inn i den nye flaten
+  for (const tema in BIND)
+    if (TIL[tema] !== undefined)
+      BIND[tema].forEach(f => f(TIL[tema]));
+  logg("panel", "konfig lastet — " + togveier.length + " togveier, " +
+       veksler.length + " veksler");
+}
+
+/* bind: koble et tema til alle elementer med data-b=tema */
+function bind(tema, fn) {
+  (BIND[tema] = BIND[tema] || []).push(pl => {
+    document.querySelectorAll(`[data-b="${tema}"]`)
+      .forEach(el => fn(pl, el));
+  });
+}
+function bindSt(tema, klasseAv) {   // enkel tekst + fargeklasse
+  bind(tema, (pl, el) => {
+    el.textContent = pl;
+    el.className = "st " + (klasseAv(pl) || "");
+  });
+}
+function bindInfo(tema) {
+  bind(tema, (pl, el) => { el.textContent = pl; });
+}
+
+/* ==================== SPORPLANEN (milepæl 2-skjelett) ====================
+   Plassholder-blokkbibliotek + komposisjonsmotor. Kontrakten mot
+   Truls' kunstverk (STILLERAPPARAT.md kap. 2):
+   - SPOR-BLOKKER på fast modul 100×60 med sporlinjen i y=30 og
+     inn/ut på modulkanten. Én blokk per ting; speiling gjør resten.
+   - OVERLEGGS-BLOKKER (signaler, lås-symboler, tekst) ankres mot
+     modulen med et punkt på sporlinjen og flippes over/under etter
+     siden de skal stå på.
+   - Lampelinser er egne elementer med klasse "pl" og tent farge i
+     currentColor — koden mørker (av), tenner (pa) og blinker (blink).
+   Hver blokk er én funksjon i `pbl` som returnerer SVG-tekst; når
+   kunstverkets SVG-er kommer, byttes funksjonens innmat blokk for
+   blokk — komposisjonen og bindingene røres ikke. */
+const MW = 100, MH = 52, SY = 30;   // modulmål og sporlinjens y
+// (MH 60 -> 52 21.08.2026: tettere radavstand — 45°-geometrien
+// følger med automatisk siden alle diagonalhopp bruker MH/MW)
+
+const pbl = {
+  linje: (x, y) => `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>`,
+  linjeLampe: (x, y, id, farge) =>
+    pbl.linje(x, y) +
+    `<circle id="${id}" class="pl" style="color:${farge}" ` +
+    `cx="${x+50}" cy="${y+SY}" r="6"/>`,
+  // Linjefelt-ende: sporet ut til kanten, feltlampe + blå togveislampe.
+  // Litraen skrives PÅ sporbåndet ved siden av lampa (innsiden).
+  ende: (x, y, side, idL, idTv, litra) => {
+    const sp = side === "v"
+      ? `M${x+MW},${y+SY} H${x+8}`
+      : `M${x},${y+SY} H${x+MW-8}`;
+    const lx = side === "v" ? x + 45 : x + 55;
+    const txt = !litra ? ""
+      : side === "v"
+      ? `<text class="pltekst" x="${lx + 12}" y="${y+SY+4}">${litra}</text>`
+      : `<text class="pltekst" text-anchor="end" x="${lx - 12}" ` +
+        `y="${y+SY+4}">${litra}</text>`;
+    return `<path class="plspor" d="${sp}"/>` +
+      `<circle id="${idL}" class="pl" style="color:#ffb400" ` +
+      `cx="${lx}" cy="${y+SY}" r="6"/>` +
+      `<circle id="${idTv}" class="pl" style="color:#1f8fff" ` +
+      `cx="${lx}" cy="${y+SY+16}" r="6"/>` + txt;
+  },
+  // Halsveksel: rett spor + avvik som diagonal til øvre modulhjørne
+  // (mot stasjonsmidten). side='v': diagonal opp mot høyre; 'h': mot
+  // venstre. Hjørne-til-hjørne-kontrakten gjør radskiftet sømløst.
+  veksel: (x, y, side, litra) => {
+    const d = side === "v"
+      ? `M${x+30},${y+SY} L${x+MW},${y}` : `M${x+70},${y+SY} L${x},${y}`;
+    const nx = side === "v" ? x + 15 : x + 85;
+    const ax = side === "v" ? x + 62 : x + 38;
+    return `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+      `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
+      `<path class="plspor" d="${d}"/>` +
+      `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+      `cx="${nx}" cy="${y+SY}" r="6"/>` +
+      `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+      `cx="${ax}" cy="${y+SY-14}" r="6"/>` +
+      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
+  },
+  // Innføring: mottar halsvekselens diagonal i nedre hjørne og
+  // legger den inn på radens sporlinje. side='v': fra nede-venstre.
+  innf: (x, y, side) => {
+    const d = side === "v"
+      ? `M${x},${y+MH} L${x+50},${y+SY} H${x+MW}`
+      : `M${x+MW},${y+MH} L${x+50},${y+SY} H${x}`;
+    return `<path class="plspor" d="${d}"/>`;
+  },
+  // Stubbveksel: normal-stilling rett frem, avviket som kort grein
+  // (opp/ned) til et buttspor utenfor planen. Gruppelås-objektene
+  // (rigelveksler, S-lås-veksler) tegnes slik.
+  stubb: (x, y, side, opp, litra) => {
+    const gy = opp ? y + 6 : y + MH - 6;
+    const gx = side === "h" ? x + 78 : x + 22;
+    const fra = side === "h" ? x + 46 : x + 54;
+    return `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+      `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
+      `<path class="plspor" d="M${fra},${y+SY} L${gx},${gy} ` +
+      `m${side==="h"?-4:4},${opp?-3:3} l8,6"/>` +
+      `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+      `cx="${x+(side==="h"?26:74)}" cy="${y+SY}" r="6"/>` +
+      `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+      `cx="${(fra+gx)/2}" cy="${(y+SY+gy)/2}" r="6"/>` +
+      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
+  },
+  // Sporsperre: strek VINKELRETT på sporbåndet den står over
+  // (ux,uy = båndets retning; navnet bæres av rigel-etiketten)
+  sperre: (px, py, id, ux = 1, uy = 0) => {
+    const nx = -uy, ny = ux;   // normalen til båndet
+    return `<g class="plklikk" onclick="plSperre('${id}')">` +
+      `<path d="M${px - nx * 13},${py - ny * 13} ` +
+      `L${px + nx * 13},${py + ny * 13}" fill="none" ` +
+      `stroke="#33363a" stroke-width="7" stroke-linecap="butt"/>` +
+      `<path d="M${px - nx * 12},${py - ny * 12} ` +
+      `L${px + nx * 12},${py + ny * 12}" fill="none" ` +
+      `stroke="#8d9094" stroke-width="5" stroke-linecap="butt"/></g>`;
+  },
+  // Hovedsignal (plassholder: rød + grønn linse), retn 'v' = vender
+  // mot venstre (tog østfra). flipp = under sporet.
+  // S-lås/nøkkelfelt: firkant med nøkkellampe (Nelaug: tent = nøkkel
+  // i kontroll) + visningsnavn
+  // rette hjørner, grått fyll som sporbåndet, 1 px omriss
+  noekkelfelt: (px, py, id, navn) =>
+    `<g><rect x="${px}" y="${py}" width="22" height="22" ` +
+    `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` +
+    `<circle id="pl-sl-${id}" class="pl" style="color:#ffb400" ` +
+    `cx="${px+11}" cy="${py+11}" r="6"/>` +
+    `<text class="plnavn" x="${px+27}" y="${py+15}">${navn}</text></g>`,
+  // Rigel-etikett med kontrollampe (ved sperresymbolet, som fotoet)
+  rigel: (px, py, id, navn) =>
+    `<g><circle id="pl-ri-${id}" class="pl" style="color:#ffb400" ` +
+    `cx="${px}" cy="${py}" r="6"/>` +
+    `<text class="plnavn" x="${px+9}" y="${py+4}">${navn}</text></g>`,
+};
+
+// LAGRE SOM SVG: frittstående fil av sporplanen med ALLE lamper
+// tent (dokumentasjons-/printutgaven). Stilen bakes inn i fila
+// (SVG-<style>), inkludert skiltfonten som data-URI, så fila står
+// på egne ben i Inkscape/Illustrator/nettleser.
+async function lagreSvg() {
+  const kilde = document.getElementById("plansvg");
+  if (!kilde) return;
+  const kopi = kilde.cloneNode(true);
+  let fontCss = "";
+  try {
+    const r = await fetch("/panel/routed-gothic.ttf");
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let b = "";
+    for (let i = 0; i < buf.length; i++) b += String.fromCharCode(buf[i]);
+    fontCss = `@font-face{font-family:"Routed Gothic";` +
+      `src:url(data:font/ttf;base64,${btoa(b)}) format("truetype");}`;
+  } catch (e) { /* uten font: fallback gjelder */ }
+  const NS = "http://www.w3.org/2000/svg";
+  const st = document.createElementNS(NS, "style");
+  st.textContent = fontCss + `
+    .pl { fill: currentColor; stroke: #33363a; stroke-width: 1; }
+    .plspor { stroke: #8d9094; stroke-width: 12; fill: none;
+              stroke-linecap: butt; }
+    .pltekst { fill: #111; font: 12px "Routed Gothic", sans-serif; }
+    .plnavn { fill: #111; font: 11px "Routed Gothic", sans-serif; }
+    .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1.5; }
+    .plknapp .knhode { fill: #111; stroke: #585b60; stroke-width: 1.5; }
+    .bsnavn { fill: #f2efe4; font: 10px "Routed Gothic", sans-serif;
+              text-anchor: middle; }
+    .bstegn { fill: #f2efe4; font: 13px "Routed Gothic", sans-serif;
+              text-anchor: middle; }
+    .plskille { fill: #111; }`;
+  const vb = kopi.viewBox.baseVal;
+  const bg = document.createElementNS(NS, "rect");
+  bg.setAttribute("x", vb.x); bg.setAttribute("y", vb.y);
+  bg.setAttribute("width", vb.width); bg.setAttribute("height", vb.height);
+  bg.setAttribute("fill", "#fff");
+  kopi.insertBefore(bg, kopi.firstChild);
+  kopi.insertBefore(st, bg);
+  const xml = new XMLSerializer().serializeToString(kopi);
+  const blob = new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n' + xml],
+                        { type: "image/svg+xml" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const id = (K.anlegg && K.anlegg.id) || "anlegg";
+  a.download = `nsi63-${id}-stillerapparat.svg`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function plSet(id, mode) {   // "pa" | "av" | "blink"
+  const el = document.getElementById(id);
+  if (!el || !el.classList) return;
+  el.classList.remove("pa", "blink");
+  if (mode !== "av") el.classList.add(mode);
+}
+function planBind(tema, fn) { (BIND[tema] = BIND[tema] || []).push(fn); }
+// Felles blinktakt: 60 blink/min, lys:mørke 1:1 — én klokke for hele
+// planen, forankret i veggklokka så fasen er lik i alle nettlesere
+setInterval(() => document.body.classList.toggle(
+  "blinkfase", Math.floor(Date.now() / 500) % 2 === 0), 250);
+function plVeksel(litra) {   // klikk: legg om (master forrigler)
+  const naa = TIL[`sporveksel/${litra}/state`];
+  pub(`sporveksel/${litra}/set`, naa === "avvik" ? "normal" : "avvik");
+}
+function plSperre(id) {
+  const naa = TIL[`sporsperre/${id}/state`];
+  pub(`sporsperre/${id}/set`, naa === "avlagt" ? "paalagt" : "avlagt");
+}
+// TOGVEISTILLER-DYTT: som på apparatet — stilleren dyttes mot den
+// enden togbevegelsen skal (master parer linjefelt- og spordytt
+// innen 2 s). Knotten fjærer visuelt tilbake.
+function plDytt(litra, r) {
+  pub(`stiller/${litra}/lagt`, r);
+  const g = document.getElementById(`pl-tvs-${litra}`);
+  const k = g && g.querySelector(".knott");
+  if (k) {
+    k.setAttribute("transform", `translate(${r === "v" ? -6 : 6},0)`);
+    setTimeout(() => k.removeAttribute("transform"), 250);
+  }
+}
+// SORT TRYKKNAPP (meldeknappen) ved linjefeltet: kvitterer
+// varselklokka for tog i anmarsj (varselfelt/<litra>/kvitter) og
+// utfører sistevognskvitteringen for innkjørtogvei over dette
+// linjefeltet som står i klar-utlos. Panelet er dumt: hvilke
+// varselfelt og togveier knappen omfatter, ble utledet av konfig da
+// planen ble bygget (PLK), og master avviser det som ikke passer.
+const PLK = {};
+function plKnapp(lf) {
+  const d = PLK[lf] || { vf: [], tv: [] };
+  for (const v of d.vf) pub(`varselfelt/${v}/kvitter`, "");
+  for (const id of d.tv)
+    if (TIL[`togvei/${id}/state`] === "klar-utlos")
+      pub(`togvei/${id}/set`, "kvitter");
+  const g = document.getElementById(`pl-kn-${lf}`);
+  const k = g && g.querySelector(".knhode");
+  if (k) {
+    k.setAttribute("r", "5");
+    setTimeout(() => k.setAttribute("r", "7"), 150);
+  }
+}
+// BETJENINGSFELTET (den grønne flaten under transparenten) — de
+// stående stillerne følges av tilstand (bsSett), de tilbakefjærende
+// fjærer visuelt. Fargene er dagens regelverk (ORV kap. 3.3).
+function bsSett(slag, id, ned) {   // stående stiller: normal/lagt ned
+  const k = document.getElementById(`bs-kn-${slag}-${id}`);
+  if (!k) return;
+  if (ned) k.setAttribute("transform", "translate(0,14)");
+  else k.removeAttribute("transform");
+}
+function bsDytt(slag, id, retn) {
+  const opp = retn === "opp";
+  if (slag === "veksel") {
+    // sporvekselstiller (blå, tilbakefjærende): opp = normal (+),
+    // ned = avvik (−). Kontrollampene sitter på transparenten.
+    pub(`sporveksel/${id}/set`, opp ? "normal" : "avvik");
+    const k = document.getElementById(`bs-kn-veksel-${id}`);
+    if (k) {
+      k.setAttribute("transform", `translate(0,${opp ? -14 : 14})`);
+      setTimeout(() => k.removeAttribute("transform"), 250);
+    }
+  } else if (slag === "skift") {
+    // skiftesignalstiller (rød, blir stående): ned = skifting
+    // tillatt, tilbake = slukket. Stillingen følger state-emnet.
+    pub(`skiftesignal/${id}/set`, opp ? "slukket" : "skifting-tillatt");
+  } else if (slag === "samlelaas" || slag === "rigel") {
+    // frigiverstiller (blå, blir stående): ned = frigi, opp = sperr
+    pub(`${slag}/${id}/set`, opp ? "sperr" : "frigi");
+  } else if (slag === "lok") {
+    // Lok-frigivning (gul, blir stående). NB: master har foreløpig
+    // bare sim-banen for frigivning — samme historikk som stillerne
+    // hadde før /lagt; døpes om når det trengs.
+    pub(`frigivning/${id}/sim`, opp ? "av" : "paa");
+  }
+}
+function bsKnappTrykk(navn) {
+  const k = document.getElementById(`bs-knapp-${navn}`);
+  if (k) {
+    k.setAttribute("r", "8");
+    setTimeout(() => k.setAttribute("r", "10"), 150);
+  }
+}
+function bsJord() {          // sort trykknapp: kvitter jordfeil
+  pub("jord/sim", "trykk");
+  bsKnappTrykk("jord");
+}
+function bsStopp() {         // rød trykknapp: signalstopp inn/ut
+  pub("signalstopp/sim",
+      TIL["master/signalstopp"] === "paa" ? "av" : "paa");
+  bsKnappTrykk("stopp");
+}
+
+function byggPlan(fns) {
+  const holder = document.getElementById("planholder");
+  if (!holder) return;
+  // Visningsnavn ALLTID fra konfig: navn-feltet der det er satt
+  // (forsignalenes «A½», låsenes «S.LÅS I»), ellers litraen — panelet
+  // fabrikkerer aldri navn selv
+  const vn = f => f.navn || f.id;
+  const tvs = (K.fr && K.fr.togveier) || [];
+  const feltAv = {};
+  fns.filter(f => f.type === "sporfelt").forEach(f => feltAv[f.id] = f);
+  const lfs = fns.filter(f => f.type === "sporfelt" &&
+                              f.rolle === "linjefelt");
+  const lfV = lfs.find(f => f.side === "v");
+  const lfH = lfs.find(f => f.side === "h");
+  const togspor = [...new Set(tvs.map(t => t.spor).filter(Boolean))];
+  if (!lfV || !lfH || !togspor.length)
+    throw new Error("krever linjefelt med side v og h + togveier " +
+                    "med spor");
+  const altN = s => tvs.filter(t => t.spor === s)
+      .every(t => (t.sporveksler || []).every(v => v.stilling === "normal"));
+  togspor.sort((a, b) => (altN(b) ? 1 : 0) - (altN(a) ? 1 : 0) ||
+                         String(a).localeCompare(String(b)));
+  const lfFor = t => (t.frie || []).find(x => feltAv[x] &&
+                                              feltAv[x].rolle === "linjefelt");
+  /* ---- portgrafen: vekslene med spiss/pluss/minus/stamme ---- */
+  const ref = v => !v ? null
+    : String(v).startsWith("veksel ") ? { veksel: String(v).slice(7) }
+    : { spor: String(v) };
+  const vx = {};
+  for (const f of fns)
+    if (String(f.type).startsWith("sporveksel"))
+      vx[f.id] = { spiss: f.spiss || null, pluss: ref(f.pluss_til),
+                   minus: ref(f.minus_til), stamme: ref(f.spiss_til),
+                   avvikBen: f.avvik_ben || null, pos: null };
+  // Togvei-avledningen (som før): hals = avviksbruk mot rad>0,
+  // row0-røtter = hals + normal-bruk på hovedsporet
+  const rowOf = {};
+  rowOf[togspor[0]] = 0;
+  if (togspor[1] !== undefined) rowOf[togspor[1]] = 1;
+  const hals = { v: null, h: null };
+  const bruk = {};
+  for (const t of tvs) {
+    const side = lfFor(t) ? feltAv[lfFor(t)].side : null;
+    for (const v of (t.sporveksler || [])) {
+      const e = bruk[v.sporveksel] = (bruk[v.sporveksel] ||
+                                      { avvik: null, normal: null });
+      if (v.stilling === "avvik") e.avvik = { spor: t.spor, side };
+      else if (!e.normal) e.normal = { spor: t.spor, side };
+    }
+  }
+  for (const [litra, e] of Object.entries(bruk))
+    if (e.avvik && e.avvik.side && rowOf[e.avvik.spor] > 0)
+      hals[e.avvik.side] = litra;
+  // Kjedemedlemmer: veksler noen peker på via pluss/minus/stamme
+  // (stamme-referanser er BAK-lenker — veksel 7 peker tilbake på
+  // veksel 3 — og skal ikke diskvalifisere rota)
+  const iKjede = new Set();
+  for (const v of Object.values(vx))
+    for (const p of [v.pluss, v.minus])
+      if (p && p.veksel) iKjede.add(p.veksel);
+  // row0-røtter på hver side, utover mot enden: hals ytterst
+  const rot = { v: [], h: [] };
+  for (const [litra, e] of Object.entries(bruk)) {
+    if (litra === hals.v || litra === hals.h) continue;
+    if (iKjede.has(litra)) continue;
+    if (e.normal && rowOf[e.normal.spor] === 0 && e.normal.side)
+      rot[e.normal.side].push(litra);
+  }
+  /* ---- posisjoner (rad, x i modulenheter) ---- */
+  // Vestkjeden legges først (x fra 2 og østover), så østsiden.
+  const settPos = (l, rad, x) => { if (vx[l]) vx[l].pos = { rad, x }; };
+  const sporKnute = {};   // sporlitra -> [{rad,x}] (koblingspunkter)
+  const leggSporPkt = (s, rad, x, dir) => {
+    (sporKnute[s] = sporKnute[s] || []).push({ rad, x, dir });
+    if (rowOf[s] === undefined) rowOf[s] = rad;
+  };
+  const kanter = [];      // {fra:{rad,x}, til:{rad,x}, veksel, port}
+  function gaaKjede(rotLitra, rad0, x0) {
+    const rotV = vx[rotLitra];
+    if (!rotV) return;
+    settPos(rotLitra, rad0, x0);
+    const xdir = rotV.spiss === "h" ? -1 : 1;
+    // retning opp/ned: kjeden går OPP hvis den når et spor med kjent
+    // rad over seg (typisk 02); ellers ned (sørkomplekset)
+    let treffOpp = false;
+    let f = rotV.minus && rotV.minus.veksel;
+    const sett = new Set([rotLitra]);
+    while (f && vx[f] && !sett.has(f)) {
+      sett.add(f);
+      const pv = (vx[f].pluss && vx[f].pluss.spor) ||
+                 (bruk[f] && bruk[f].normal && bruk[f].normal.spor);
+      if (pv && rowOf[pv] > 0) treffOpp = true;
+      f = vx[f].minus && vx[f].minus.veksel;
+    }
+    const dir = treffOpp ? 1 : (rad0 === 0 ? -1 : 1);
+    let cur = rotLitra, rad = rad0, x = x0;
+    let neste = rotV.minus && rotV.minus.veksel;
+    const gaatt = new Set([rotLitra]);
+    while (neste && vx[neste] && !gaatt.has(neste)) {
+      gaatt.add(neste);
+      const nv = vx[neste];
+      const kyss = (nv.pluss && nv.pluss.spor) ||
+                   (bruk[neste] && bruk[neste].normal &&
+                    bruk[neste].normal.spor) || null;
+      let nrad = rad + dir;
+      // snapp til kjent rad hvis kyss-sporet alt er plassert
+      if (kyss && rowOf[kyss] !== undefined) nrad = rowOf[kyss];
+      // 45°-GEOMETRI: et radskifte flytter x med MH/MW per rad, så
+      // hele vekselgata ligger på ÉN rett 45°-linje (ingen trappetrinn).
+      // MEN: peker NESTE vekselens stamme TILBAKE på forrige (som
+      // veksel 9 mot 5), ligger vekselen i sin EGEN vannrette
+      // sporrekke — gata bøyer av 45° og går vannrett inn i den
+      // (full kolonne, kantbanen får knekken automatisk).
+      // UNNTAK avvik_ben="pluss" (veksel 7): det krumme benet er
+      // pluss-greina, stamme og minus ligger i linje — gata
+      // fortsetter rett gjennom vekselen på 45°-linja.
+      // Og BARE når vekselen har en fortsettelse (minus) trengs
+      // innløpet — uten fortsettelse (Grindvoll veksel 5) treffer
+      // diagonalen sporet i selve vekselpunktet, så skjøten er
+      // synlig der vekselen er merket.
+      // (avvik_ben «spiss» — greinene i linje — trenger heller ikke
+      // innløp: vekselen ligger i grein-raden med stubben forbi seg)
+      const stammeTilbake = nv.stamme && nv.stamme.veksel === cur &&
+                            !nv.avvikBen && !!nv.minus;
+      let nx = x + xdir * (nrad === rad || stammeTilbake
+        ? 1 : Math.abs(nrad - rad) * (MH / MW));
+      if (nv.pos) { nrad = nv.pos.rad; nx = nv.pos.x; }
+      kanter.push({ fra: { rad, x }, til: { rad: nrad, x: nx },
+                    veksel: cur, port: "minus" });
+      if (!nv.pos) settPos(neste, nrad, nx);
+      rad = nrad; x = nx;
+      // pluss-greina KYSSER på vekselens egen rad
+      if (kyss) leggSporPkt(kyss, rad, x);
+      cur = neste;
+      neste = nv.minus && nv.minus.veksel;
+    }
+    // Kjedens siste ledd: minus mot et SPOR lander én rad utover —
+    // MED MINDRE stammen er det fysisk krumme benet (avvik_ben=
+    // «spiss», som veksel 11): da ligger pluss- og minusgreina i
+    // LINJE, og sporet fortsetter på vekselens egen rad.
+    const siste = vx[cur];
+    if (siste && siste.minus && siste.minus.spor) {
+      const s = siste.minus.spor;
+      const iLinje = siste.avvikBen === "spiss";
+      const nrad = (rowOf[s] !== undefined) ? rowOf[s]
+                 : (iLinje ? rad : rad + dir);
+      // i linje: minus-sporet lander på MOTSATT side av pluss-greina
+      // (kyss-sporet) — Grindvoll veksel 5: sidesporet vest, stubben
+      // øst. Fallback: kjederetningen (Sokna 11: spor 3 mot øst).
+      let retn = xdir;
+      if (iLinje && siste.pluss && siste.pluss.spor &&
+          sporKnute[siste.pluss.spor]) {
+        const andre = sporKnute[siste.pluss.spor]
+          .map(p => p.x).filter(x2 => x2 !== x);
+        if (andre.length) retn = Math.min(...andre) < x ? 1 : -1;
+      }
+      const nx = x + retn * (nrad === rad
+        ? 1 : Math.abs(nrad - rad) * (MH / MW));   // 45°-geometri
+      kanter.push({ fra: { rad, x }, til: { rad: nrad, x: nx },
+                    veksel: cur, port: "minus" });
+      leggSporPkt(s, nrad, nx, retn);
+    }
+  }
+  // grunnlinjens kolonner: [ende][linjefelt][kjederøtter ... midt]
+  const cV = 2;
+  gaaKjede(hals.v || rot.v[0], 0, cV);
+  rot.v.forEach((l, i) => { if (l !== (hals.v || rot.v[0]))
+    settPos(l, 0, cV + 1 + i); });
+  // østsiden: regn ut nødvendig bredde av vestkjeden først
+  let maksX = cV;
+  for (const v of Object.values(vx))
+    if (v.pos) maksX = Math.max(maksX, v.pos.x);
+  for (const pkt of Object.values(sporKnute))
+    for (const p of pkt) maksX = Math.max(maksX, p.x);
+  const cH = Math.max(maksX + 4, 8);
+  gaaKjede(hals.h || rot.h[0], 0, cH);
+  rot.h.forEach((l, i) => { if (l !== (hals.h || rot.h[0])) {
+    settPos(l, 0, cH - 1 - i);
+    gaaKjede(l, 0, cH - 1 - i);
+  }});
+  // stamme-lenker (f.eks. veksel 9 -> veksel 5): tegn som kant
+  for (const [litra, v] of Object.entries(vx)) {
+    if (!v.pos || !v.stamme || !v.stamme.veksel) continue;
+    const m = vx[v.stamme.veksel];
+    if (m && m.pos &&
+        !kanter.some(k => (k.veksel === litra || k.veksel === v.stamme.veksel) &&
+          ((k.fra.rad === v.pos.rad && k.fra.x === v.pos.x &&
+            k.til.rad === m.pos.rad && k.til.x === m.pos.x) ||
+           (k.til.rad === v.pos.rad && k.til.x === v.pos.x &&
+            k.fra.rad === m.pos.rad && k.fra.x === m.pos.x))))
+      kanter.push({ fra: { rad: v.pos.rad, x: v.pos.x },
+                    til: { rad: m.pos.rad, x: m.pos.x },
+                    veksel: litra, port: "stamme" });
+  }
+  /* ---- geometri ---- */
+  // Avstanden fra ytterste sporveksel til ytterkanten skal være LIK
+  // på begge sider: vest = cV moduler + KANT, øst = (nCol-cH) moduler
+  // + KANT => nCol = cH + cV. KANT gir romsligere sider.
+  const nCol = cH + cV;
+  const KANT = 200;
+  let minRad = 0, maksRad = 1;
+  for (const r of Object.values(rowOf)) {
+    minRad = Math.min(minRad, r); maksRad = Math.max(maksRad, r);
+  }
+  for (const v of Object.values(vx)) if (v.pos) {
+    minRad = Math.min(minRad, v.pos.rad);
+    maksRad = Math.max(maksRad, v.pos.rad);
+  }
+  const topp = 46, bunn = 46;
+  const W = nCol * MW, H = topp + (maksRad - minRad + 1) * MH + bunn;
+  const Y = rad => topp + (maksRad - rad) * MH + SY;
+  const X = c => c * MW;
+  const P = (rad, x) => [X(x), Y(rad)];
+  let s = "";
+  // SKILLE mellom sporfelt i forriglingen: svart tverrstrek som
+  // holder seg INNENFOR linjebåndet (grå bredde 12). Markeres der
+  // linjefelt/togspor grenser mot vekselfelt og rundt varselfeltene;
+  // der vekselfelt grenser mot annet enn linjefelt/togspor markeres
+  // ingenting.
+  const skille = (x, rad = 0) => `<rect class="plskille" ` +
+    `x="${x - 3.5}" y="${Y(rad) - 6}" width="7" height="12"/>`;
+  // Fast kort avstand veksel->skille, med plass til tungekontroll-
+  // lampa (22 fra vekselpunktet + linse 6 + luft). I TUNGEENDEN
+  // ligger skillet visuelt tettere på (der er det ingen lampe —
+  // kontrollampene sitter alltid på greinsiden).
+  const SKAVST = 40, SKTETT = 22;
+  // Linjefeltets ytre skille: LFUT fra modulnettkanten — plassen er
+  // tatt fra det ulitrerte feltet mellom varselfelt og linjefelt.
+  // UTEN varselfelt (fjernstyrt strekning, Grindvoll) finnes verken
+  // varselfelt eller ulitrert felt: linjefeltet utvides utover
+  // (LFUTB) og siden får bredere kant, så stillerkolonnen (stiller,
+  // blå lampe, sort knapp) går klar av mastene uten sideflytting
+  const LFUT = 60, LFUTB = 150;
+  const lfHarVarsel = {};
+  for (const v of fns)
+    if (v.type === "sporfelt" && v.rolle === "varselfelt" &&
+        v.linjefelt)
+      lfHarVarsel[v.linjefelt] = true;
+  const lfUtFor = id => lfHarVarsel[id] ? LFUT : LFUTB;
+  const kantV = lfV && !lfHarVarsel[lfV.id] ? KANT + 90 : KANT;
+  const kantH = lfH && !lfHarVarsel[lfH.id] ? KANT + 90 : KANT;
+  const skAvst = (litra, skilleVestForVeksel) => {
+    const sp = (vx[litra] || {}).spiss;
+    return (skilleVestForVeksel ? sp === "v" : sp === "h")
+      ? SKTETT : SKAVST;
+  };
+  // Sentralstilte veksler = i togveier og IKKE omfattet av lås/rigel;
+  // det er DE som avgrenser vekselfeltene. Håndveksler med lås ligger
+  // inne i togsporfeltene (på Sokna: 01 går helt til veksel 1, forbi
+  // veksel 3).
+  const iLaas = new Set();
+  for (const f of fns)
+    if (f.type === "samlelaas" || f.type === "rigel")
+      (f.omfatter || []).forEach(o => iLaas.add(String(o)));
+  const vSentral = {};
+  for (const l of Object.keys(vx))
+    vSentral[l] = !!bruk[l] && !iLaas.has(l);
+  // grenseveksel for et felt på rad: nærmeste SENTRALSTILTE veksel
+  // på den siden av midten (håndveksler bare som nødfall)
+  const grenseV = (rad, midt0, side) => {
+    const kand = Object.entries(vx).filter(([l, v]) =>
+      v.pos && v.pos.rad === rad &&
+      (side === "v" ? v.pos.x <= midt0 : v.pos.x > midt0));
+    const sen = kand.filter(([l]) => vSentral[l]);
+    const pool = sen.length ? sen : kand;
+    if (!pool.length) return null;
+    pool.sort((a, b) => side === "v"
+      ? b[1].pos.x - a[1].pos.x : a[1].pos.x - b[1].pos.x);
+    return pool[0][0];
+  };
+  /* hovedsporet (rad 0): ett sammenhengende bånd kant til kant */
+  s += `<path class="plspor" d="M${-kantV},${Y(0)} H${X(1)}"/>` +
+       `<path class="plspor" d="M${X(nCol - 1)},${Y(0)} ` +
+       `H${nCol * MW + kantH}"/>`;
+  s += `<path class="plspor" d="M${X(1)},${Y(0)} H${X(nCol - 1)}"/>`;
+  // STILLERMERKING (apparatets «A/L … B/M»): for hvert objekt med
+  // togveistiller samles startsignalene etter BEVEGELSESRETNING —
+  // vestover (innkjør fra h-linja, utkjør mot v-linja) til venstre
+  // for knotten, østover til høyre. Utledet av togveitabellen +
+  // signalrollene, som alt annet.
+  const hovedRolle = {};
+  for (const f of fns)
+    if (String(f.type).startsWith("hovedsignal"))
+      hovedRolle[f.id] = f.rolle || "";
+  const stillerTekster = obj => {
+    const v2 = [], h2 = [];
+    for (const t of tvs) {
+      if (t.spor !== obj && lfFor(t) !== obj) continue;
+      const lf = lfFor(t);
+      const side = lf ? (feltAv[lf] || {}).side : null;
+      if (!side || !t.start) continue;
+      const inn = hovedRolle[t.start] === "innkjor";
+      const vest = inn ? side === "h" : side === "v";
+      const m2 = vest ? v2 : h2;
+      if (!m2.includes(t.start)) m2.push(t.start);
+    }
+    return [v2.join("/"), h2.join("/")];
+  };
+  // Togveistilleren: rød knott med klikkbare halvdeler (dytt v/h)
+  // og retningsmerking på hver side
+  const stillerSym = (litra, xm, yv) => {
+    const [vT, hT] = stillerTekster(litra);
+    return `<g class="pltvs" id="pl-tvs-${litra}">` +
+      `<rect x="${xm - 30}" y="${yv - 14}" width="30" height="28" ` +
+      `fill="transparent" onclick="plDytt('${litra}','v')"/>` +
+      `<rect x="${xm}" y="${yv - 14}" width="30" height="28" ` +
+      `fill="transparent" onclick="plDytt('${litra}','h')"/>` +
+      `<circle class="knott" cx="${xm}" cy="${yv}" r="9" ` +
+      `pointer-events="none"/>` +
+      (vT ? `<text class="plnavn" text-anchor="end" ` +
+            `pointer-events="none" x="${xm - 16}" y="${yv + 4}">` +
+            `${vT}</text>` : "") +
+      (hT ? `<text class="plnavn" pointer-events="none" ` +
+            `x="${xm + 16}" y="${yv + 4}">${hT}</text>` : "") +
+      `</g>`;
+  };
+  // LINJEFELTENE tegnes som togsporene: to lamper med litra på
+  // båndet (22 % inn fra hver feltgrense), togveistilleren SENTRERT
+  // på feltet, blå togveilampe rett under stilleren, og skiller mot
+  // det ulitrerte feltet utenfor og vekselfeltet innenfor
+  const knapper = [];  // sorte trykknapper — tegnes etter mastene
+  const tegnLinjefelt = (f, side) => {
+    const yv = Y(0);
+    const base = side === "v" ? X(0) : nCol * MW;
+    const d = side === "v" ? 1 : -1;      // +1 = innover mot øst
+    const o = base - d * lfUtFor(f.id);   // ytre skille (mot ulitrert)
+    // indre skille mot vekselfeltet: fast avstand fra halsvekselen —
+    // TETT i tungeenden (og der er begge halsvekslenes tunger)
+    const i = side === "v"
+      ? X(cV) - skAvst(hals.v || "", true)
+      : X(cH) + skAvst(hals.h || "", false);
+    const xu = o + (i - o) * 0.22, xi = i - (i - o) * 0.22;
+    const xm = (o + i) / 2;
+    const t = (x, mot) => mot > 0
+      ? `<text class="pltekst" x="${x + 12}" y="${yv + 4}">${vn(f)}</text>`
+      : `<text class="pltekst" text-anchor="end" x="${x - 12}" ` +
+        `y="${yv + 4}">${vn(f)}</text>`;
+    // hva den sorte knappen ved DETTE linjefeltet omfatter — utledet
+    // av konfig: feltets varselfelt + togveiene som går over feltet
+    PLK[f.id] = {
+      vf: fns.filter(v => v.type === "sporfelt" &&
+                          v.rolle === "varselfelt" &&
+                          v.linjefelt === f.id).map(v => v.id),
+      tv: tvs.filter(t2 => lfFor(t2) === f.id).map(t2 => t2.id)
+    };
+    // togveilampe og sort trykknapp tegnes ETTER mastene
+    // (kollisjonssjekk mot dem) — her noteres bare ønsket plass
+    knapper.push({ lf: f.id, xm, o, i, linjeblokk: !!f.linjeblokk });
+    return `<circle id="pl-fl-${f.id}" class="pl" style="color:#ffb400" ` +
+      `cx="${xu}" cy="${yv}" r="6"/>` + t(xu, d) +
+      `<circle id="pl-fl-${f.id}-b" class="pl" style="color:#ffb400" ` +
+      `cx="${xi}" cy="${yv}" r="6"/>` + t(xi, -d) +
+      stillerSym(f.id, xm, yv) +
+      // (blå togveilampe + sort trykknapp tegnes ETTER mastene, i
+      // kolonne under stilleren, med kollisjonsflytting — se knapper)
+      skille(o) + skille(i);
+  };
+  s += tegnLinjefelt(lfV, "v") + tegnLinjefelt(lfH, "h");
+  // TOGSPOR: to sporfeltlamper (én mot hver ende) med litraen skrevet
+  // PÅ sporfeltet ved siden av lampa, og togveistilleren midt på
+  // sporet (symbol nå — dyttgesten kommer i milepæl 3).
+  // Lamper og stillere står LIKT plassert i x-retningen på alle
+  // togspor: plasseringen bestemmes av det korteste togsporets frie
+  // strekning (mellom innerste veksel på hver side av midten).
+  const friAv = (x1, x2, rad) => {
+    const midt0 = (x1 + x2) / 2;
+    let cx1 = x1, cx2 = x2;
+    for (const v of Object.values(vx)) {
+      if (!v.pos || v.pos.rad !== rad) continue;
+      if (v.pos.x <= midt0) cx1 = Math.max(cx1, v.pos.x);
+      else cx2 = Math.min(cx2, v.pos.x);
+    }
+    if (cx2 - cx1 < 2) { cx1 = x1; cx2 = x2; }   // nødfall
+    return [cx1, cx2];
+  };
+  const tsSpenn = sid => {
+    if (sporKnute[sid]) {
+      const xs = sporKnute[sid].map(p => p.x);
+      return [Math.min(...xs), Math.max(...xs)];
+    }
+    return [1, nCol - 1];              // hovedsporet (rad 0)
+  };
+  // Felles mal = SNITTET av togsporenes friområder (= det korteste,
+  // og garantert innenfor alle båndene)
+  let tvFri = null;
+  for (const sid of togspor) {
+    const [x1, x2] = tsSpenn(sid);
+    const f = friAv(x1, x2, rowOf[sid]);
+    tvFri = tvFri
+      ? [Math.max(tvFri[0], f[0]), Math.min(tvFri[1], f[1])] : f;
+  }
+  const tvXa = X(tvFri[0] + (tvFri[1] - tvFri[0]) * 0.22);
+  const tvXb = X(tvFri[1] - (tvFri[1] - tvFri[0]) * 0.22);
+  const tvXm = X((tvFri[0] + tvFri[1]) / 2);
+  const tegnTogspor = (sid, rad) => {
+    const yv = Y(rad);
+    const xa = tvXa, xb = tvXb, xm = tvXm;
+    // skiller mot vekselfeltene: togsporfeltet går HELT TIL
+    // grensevekselen (nærmeste sentralstilte — forbi låste
+    // håndveksler), fast avstand fra vekselpunktet, tett i tungeenden
+    const [sp1, sp2] = tsSpenn(sid);
+    const m0 = (sp1 + sp2) / 2;
+    const gV = grenseV(rad, m0, "v"), gH = grenseV(rad, m0, "h");
+    return (gV ? skille(X(vx[gV].pos.x) + skAvst(gV, false), rad) : "") +
+      (gH ? skille(X(vx[gH].pos.x) - skAvst(gH, true), rad) : "") +
+      `<circle id="pl-fl-${sid}" class="pl" style="color:#ffb400" ` +
+      `cx="${xa}" cy="${yv}" r="6"/>` +
+      `<text class="pltekst" x="${xa + 12}" y="${yv + 4}">${sid}</text>` +
+      `<circle id="pl-fl-${sid}-b" class="pl" style="color:#ffb400" ` +
+      `cx="${xb}" cy="${yv}" r="6"/>` +
+      `<text class="pltekst" text-anchor="end" x="${xb - 12}" ` +
+      `y="${yv + 4}">${sid}</text>` +
+      stillerSym(sid, xm, yv);
+  };
+  s += tegnTogspor(togspor[0], 0);
+  /* spor med koblingspunkter: spenn mellom punktene, butt = forleng
+     mot venstre (Sokna-konvensjonen; alle buttsporene peker vest) */
+  for (const [sid, pkt] of Object.entries(sporKnute)) {
+    const rad = rowOf[sid];
+    const xs = pkt.map(p => p.x);
+    let x1 = Math.min(...xs), x2 = Math.max(...xs);
+    if (x1 === x2) {
+      // buttspor: forleng BORT fra vekselen — retningen fra
+      // landingspunktet om den er kjent, ellers vestover
+      // (Sokna-konvensjonen)
+      if ((pkt[0].dir || -1) > 0) x2 = x2 + 2;
+      else x1 = x1 - 2;
+    }
+    s += `<path class="plspor" d="M${X(x1)},${Y(rad)} H${X(x2)}"/>`;
+    if (togspor.includes(sid)) {
+      s += tegnTogspor(sid, rad);
+      continue;
+    }
+    const harLampe = (feltAv[sid] || {}).rolle !== "spor";
+    if (harLampe)
+      s += `<circle id="pl-fl-${sid}" class="pl" style="color:#ffb400" ` +
+        `cx="${X((x1 + x2) / 2)}" cy="${Y(rad)}" r="6"/>`;
+    // spornummer SENTRERT på sporet i x-retningen, over båndet
+    s += `<text class="pltekst" text-anchor="middle" ` +
+      `x="${X((x1 + x2) / 2)}" y="${Y(rad) - 12}">${sid}</text>`;
+  }
+  /* kantene (diagonalene) */
+  // Diagonalene tegnes i 45°: skrå del først (ut fra vekselpunktet),
+  // deretter vannrett inn mot målet — som forbildet
+  for (const k of kanter) {
+    const [ax, ay] = P(k.fra.rad, k.fra.x);
+    const [bx, by] = P(k.til.rad, k.til.x);
+    const dx = bx - ax, dy = by - ay;
+    if (dy === 0 || Math.abs(dx) <= Math.abs(dy)) {
+      s += `<path class="plspor" d="M${ax},${ay} L${bx},${by}"/>`;
+    } else {
+      const mx = ax + Math.sign(dx) * Math.abs(dy);
+      s += `<path class="plspor" d="M${ax},${ay} L${mx},${by} H${bx}"/>`;
+    }
+  }
+  /* vekslene: klikkflate + kontrollamper lagt langs greinretningene */
+  const vSens = {};   // litra -> har stillingssensorer
+  const vFeltAv = {}; // litra -> sporvekselfeltet (for belagt-lampa)
+  const kantFra = {};
+  for (const k of kanter) {
+    (kantFra[k.veksel] = kantFra[k.veksel] || []).push(k);
+  }
+  // VEKSELNUMRENE skal aldri overlappe sporbånd: for hver veksel
+  // noteres hvilke KVADRANTER (over/under x vest/øst) som er opptatt
+  // av skrå kanter, og litraen legges i første ledige. Rene
+  // 45°-kanter opptar kvadranten i BEGGE ender; knekk-kanter
+  // (45° + vannrett innløp) bare i fra-enden — innløpet er vannrett.
+  const posAv = {};
+  for (const [l, v] of Object.entries(vx))
+    if (v.pos) posAv[v.pos.rad + "|" + v.pos.x] = l;
+  const vKvad = {};
+  const blokk = (l, qx, qy) => { if (l)
+    (vKvad[l] = vKvad[l] || new Set()).add(qx + "," + qy); };
+  for (const k of kanter) {
+    const [ax, ay] = P(k.fra.rad, k.fra.x);
+    const [bx, by] = P(k.til.rad, k.til.x);
+    const dx = bx - ax, dy = by - ay;
+    if (dy === 0) continue;
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+    blokk(posAv[k.fra.rad + "|" + k.fra.x], sx, sy);
+    if (Math.abs(dx) <= Math.abs(dy))
+      blokk(posAv[k.til.rad + "|" + k.til.x], -sx, -sy);
+  }
+  for (const [litra, v] of Object.entries(vx)) {
+    if (!v.pos) continue;
+    const [px, py] = P(v.pos.rad, v.pos.x);
+    // retningsvektor for lampene: mot pluss (langs raden) og mot
+    // minus (langs første kant fra vekselen)
+    const pd = (v.spiss === "h") ? -1 : 1;
+    let mx = pd * 0.5, my = -0.5;
+    const ke = (kantFra[litra] || [])[0];
+    if (ke) {
+      const [tx, ty] = P(ke.til.rad, ke.til.x);
+      const dx = tx - px, dy = ty - py;
+      if (dy !== 0 && Math.abs(dx) > Math.abs(dy)) {
+        // 45°-kant: lampa legges langs den skrå delen
+        mx = Math.sign(dx) * Math.SQRT1_2;
+        my = Math.sign(dy) * Math.SQRT1_2;
+      } else {
+        const ln = Math.hypot(dx, dy) || 1;
+        mx = dx / ln; my = dy / ln;
+      }
+    }
+    // Tungekontrollamper fantes BARE på vekslene som kan styres
+    // elektrisk fra stillerapparatet (Sokna: veksel 1 og 2) — de
+    // sentralstilte, eller veksler med drivutganger i konfig. Uten
+    // kontroll er lampene bare SLUKKET (aldri blink). Håndveksler
+    // har ingen lamper — forbildet hadde ingen sensorer på dem:
+    // sikringsanlegget forholder seg bare til NØKLENES status.
+    const vf = fns.find(f => f.id === litra &&
+                             String(f.type).startsWith("sporveksel"));
+    const harSens = vf && (vf.bindinger || []).some(b =>
+      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
+    const harDriv = vf && (vf.bindinger || []).some(b =>
+      b.sted === "ut-normal" || b.sted === "ut-avvik");
+    vSens[litra] = !!harSens;
+    let lamper = ``;
+    if (vSentral[litra] || harDriv) {
+      // Sporvekselfeltets FELTLAMPE: feltet utledes som i master —
+      // utløsningsfeltet til togveiene som bruker vekselen. Lampa
+      // oppfører seg som alle andre sporfeltlamper (gul, lyser når
+      // feltet er FRITT, slukker ved belegg) og står sentrert i x
+      // der linjene skiller lag (vekselpunktet).
+      for (const t of tvs)
+        if ((t.sporveksler || []).some(v => v.sporveksel === litra) &&
+            t.utlosningsfelt) { vFeltAv[litra] = t.utlosningsfelt; break; }
+      lamper =
+        `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+        `cx="${px + pd * 22}" cy="${py}" r="6"/>` +
+        `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+        `cx="${px + mx * 26}" cy="${py + my * 26}" r="6"/>` +
+        (vFeltAv[litra]
+          ? `<circle id="pl-vfb-${litra}" class="pl" ` +
+            `style="color:#ffb400" cx="${px}" cy="${py}" r="6"/>`
+          : ``);
+    }
+    // litra i første ledige kvadrant (aldri oppå et sporbånd)
+    const opptatt = vKvad[litra] || new Set();
+    const q = [[-1, 1], [1, 1], [-1, -1], [1, -1]]
+      .find(([qx, qy]) => !opptatt.has(qx + "," + qy)) || [1, 1];
+    s += `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+      `<circle cx="${px}" cy="${py}" r="16" fill="transparent"/>` +
+      lamper +
+      `<text class="pltekst"${q[0] > 0 ? "" : ' text-anchor="end"'} ` +
+      `x="${px + q[0] * 6}" y="${py + (q[1] > 0 ? 20 : -14)}">` +
+      `${litra}</text></g>`;
+  }
+  if (togspor.length > 2)
+    s += `<text class="pltekst" x="8" y="14">NB: flere togspor enn to
+      i tabellen — bare de to første rades automatisk</text>`;
+  /* ---- overlegg (som før, forenklet forankring) ---- */
+  const varsel = fns.filter(f => f.type === "sporfelt" &&
+                                 f.rolle === "varselfelt");
+  // Varselfeltene: KORTE felt ute på linja (men ikke helt ute i
+  // kanten) — lampa inne på sporbåndet, litra ved siden av, og
+  // skille TETT INNTIL lampe og litra på begge sider. Mellom
+  // varselfeltet og linjefeltet ligger et ulitrert felt (uten lampe
+  // og litra); forsignalene står i det, innenfor varselfeltet.
+  for (const vf of varsel) {
+    const side = (feltAv[vf.linjefelt] || {}).side;
+    if (!side) continue;
+    const base = side === "v" ? X(0) : nCol * MW;
+    const d = side === "v" ? 1 : -1;      // +1 = innover mot øst
+    const px = base - d * 150;
+    s += `<circle id="pl-vfl-${vf.id}" class="pl" style="color:#ffb400" ` +
+      `cx="${px}" cy="${Y(0)}" r="6"/>` +
+      // litra UTENFOR båndet, sentrert over lampa
+      `<text class="pltekst" text-anchor="middle" x="${px}" ` +
+      `y="${Y(0) - 12}">${vn(vf)}</text>` +
+      skille(px - d * 14) + skille(px + d * 14);
+  }
+  const sigKl = f => (K.hal.signaltyper[f.type] || {}).klasse ||
+    (String(f.type).startsWith("hovedsignal") ? "hovedsignal"
+     : String(f.type).startsWith("forsignal") ? "forsignal" : null);
+  // SIGNALSIDEN: alltid HØYRE side sett fra kjøreretningen signalet
+  // vender mot. Med nord opp: signaler som ses av VESTGÅENDE tog
+  // (vender øst — innkjør fra h-enden, utkjør mot v-enden) står OVER
+  // sporet; signaler som ses av ØSTGÅENDE (innkjør fra v, utkjør mot
+  // h) står UNDER. Skiftesignalet følger utkjørsignalet det står
+  // forbi. Frittstående forsignal lengst ute; montert forsignal
+  // stables utover på vertens mast.
+  // Lampene ligger tett på sporbåndet (bånd 12 + linse 12 + luft),
+  // litraen på UTSIDEN av lamperekka
+  // Avstanden fra sporbåndet til signalrammen = rammens egen høyde
+  // (22): båndkant Y±6 + 22 + halv ramme 11 => senter i Y ∓ 39
+  // (justert 21.08.2026: 39 -> 33 — litt tettere på båndet)
+  const yOver = Y(0) - 33;
+  const yUnder = Y(0) + 33;
+  const sigOver = (rolle, side) =>
+    rolle === "innkjor" ? side === "h" : side === "v";
+  // MASTKOMPOSITOREN. Den fysiske masten er loddrett; på sporplanen
+  // tegnes den rotert 90° som ÉN vannrett lamperekke: mastefoten mot
+  // enden signalet VENDER (over sporet = vender øst = fot til høyre;
+  // under = fot til venstre), toppen ytterst. Verten (hovedsignalet)
+  // øverst, påmonterte signaler (forsignal, høyt skiftesignal) følger
+  // nedover mot foten — «loddrett under» blir dermed «innover i
+  // rekka». Ingen mastestrek; slukket linse er hvit med omriss.
+  // Lamperekkefølge topp->bunn per del: hovedsignal 3-lys grønn-rød-
+  // grønn, 2-lys rød-grønn; forsignal gul-grønn; skiftesignal 41-42.
+  const master = {};   // vert-litra -> {px, py, over, deler: [...]}
+  const oppTatt = [];  // tegnede masters utstrekning (kollisjonssjekk
+                       // for den sorte trykknappen)
+  // Hver lampe får eget id, og `cfg` oversetter TEGNET posisjon
+  // (topp->bunn i kapselen) til konfigtabellens lampeindeks — samme
+  // indeks som master driver de fysiske linsene med. Signalbildene
+  // (hvilke lamper som lyser/blinker per bilde) leses dermed RETT UT
+  // av signaltyper-tabellen i konfig, ikke av panelets egne regler.
+  const delFor = f => {
+    const kl = sigKl(f) ||
+      (String(f.type).startsWith("skiftesignal") ? "skiftesignal" : null);
+    const nLys = (K.hal.signaltyper[f.type] || {}).lamper || 2;
+    const ider = n => Array.from({ length: n },
+      (_, i) => `pl-s-${kl}-${f.id}-${i}`);
+    if (kl === "hovedsignal") {
+      // 3-lys tegnes grønn-rød-grønn (= konfigindeks 0,1,2);
+      // 2-lys tegnes rød-grønn, men konfig har [grønn, rød] -> [1,0]
+      const farger = nLys >= 3
+        ? ["#1fe04e", "#ff2a1e", "#1fe04e"] : ["#ff2a1e", "#1fe04e"];
+      const cfg = nLys >= 3 ? [0, 1, 2] : [1, 0];
+      return { navn: vn(f), farger, cfg, ider: ider(farger.length) };
+    }
+    if (kl === "forsignal")
+      // gul-grønn = konfigindeks 0,1
+      return { navn: vn(f), farger: ["#ffb400", "#1fe04e"],
+               cfg: [0, 1], ider: ider(2) };
+    // Høyt skiftesignal: bildene er STREKER, ikke runde linser —
+    // 41 loddrett, 42 skrå (se dokumentasjonen) — og de lyser GULT.
+    // Konfig har [42-lampa, 41-lampa]; tegnet 41,42 -> [1,0].
+    // Ettlys-typen har bare 42-streken.
+    if (nLys === 1)
+      return { navn: vn(f), farger: ["#ffb400"], former: ["strek42"],
+               cfg: [0], ider: ider(1) };
+    // rekkefølge i kapselen: skrå (42) først, så loddrett (41)
+    return { navn: vn(f), farger: ["#ffb400", "#ffb400"],
+             former: ["strek42", "strek41"],
+             cfg: [0, 1], ider: ider(2) };
+  };
+  for (const f of fns) {
+    const side = f.linjefelt ? (feltAv[f.linjefelt] || {}).side : null;
+    if (sigKl(f) !== "hovedsignal" || !side) continue;
+    const inn = f.rolle === "innkjor";
+    const over = sigOver(f.rolle, side);
+    // utkjørsignalet er FELLES for togsporene og står der de er
+    // flettet: utenfor halsvekselen, mot linjefeltet
+    const px = side === "h" ? (inn ? X(nCol - 1) + 16 : X(cH) + 60)
+                            : (inn ? X(0) + 16 : X(cV) - 70);
+    master[f.id] = { px, py: over ? yOver : yUnder, over,
+                     deler: [delFor(f)] };
+    if (!inn) {
+      // EGET utkjørsignal per togspor (Grindvoll-mønsteret): står
+      // ved SITT spor — foten i sporets bandende mot linja, masten
+      // på UTSIDEN av raden (over for nordlige rader), og vender
+      // mot linja den fører til. Utledes av togveitabellen.
+      const t2 = tvs.find(t => t.start === f.id && t.spor);
+      const sr = t2 ? rowOf[t2.spor] : undefined;
+      if (t2 && sr !== undefined && sr !== 0 && sporKnute[t2.spor]) {
+        const xs = sporKnute[t2.spor].map(p => p.x);
+        master[f.id].fotX = X(side === "v" ? Math.min(...xs)
+                                           : Math.max(...xs));
+        // kapselen ligger TETT PÅ sitt eget spors bånd (stripa
+        // mellom radene er trang), litraen på motsatt side av
+        // kapselen — inn i resten av stripa
+        master[f.id].py = sr >= 0 ? Y(sr) - 20 : Y(sr) + 20;
+        master[f.id].over = side === "v";     // orientering (fotside)
+        master[f.id].tekstOver = sr >= 0;
+      } else {
+        // FELLES utkjørsignal (Sokna-mønsteret): foten der
+        // linjefeltet starter sett fra stasjonen (det indre skillet
+        // mot vekselfeltet — tunge/grein-avstanden fra halsvekselen)
+        master[f.id].fotX = side === "h"
+          ? X(cH) + skAvst(hals.h || "", false)
+          : X(cV) - skAvst(hals.v || "", true);
+      }
+    } else {
+      // Innkjørsignalmastens FOT skal i x ligge der linjefeltet
+      // STARTER (det ytre skillet, kant∓LFUT/LFUTB)
+      master[f.id].fotX = side === "h"
+        ? nCol * MW + lfUtFor((lfH || {}).id)
+        : X(0) - lfUtFor((lfV || {}).id);
+    }
+  }
+  for (const f of fns) {   // påmonterte og frittstående forsignaler
+    if (sigKl(f) !== "forsignal") continue;
+    if (f.montert_med && master[f.montert_med]) {
+      master[f.montert_med].deler.push(delFor(f));
+      continue;
+    }
+    const vert = fns.find(x => x.id === f.varsler_om &&
+                               sigKl(x) === "hovedsignal");
+    const side = vert && vert.linjefelt
+      ? (feltAv[vert.linjefelt] || {}).side : null;
+    if (!side) continue;
+    const over = sigOver("innkjor", side);
+    // frittstående forsignal: ytterst av signalene — i det ulitrerte
+    // feltet innenfor varselfeltet, eller (uten varselfelt) rett
+    // utenfor linjefeltets ytre skille. Avstanden følger skillet.
+    const fsUt = lfUtFor(vert.linjefelt);
+    master[`fs-${f.id}`] = {
+      px: side === "h" ? nCol * MW + fsUt + 27 : X(0) - fsUt - 42,
+      py: over ? yOver : yUnder, over, deler: [delFor(f)] };
+  }
+  for (const f of fns.filter(x => String(x.type).startsWith("skiftesignal"))) {
+    if (f.montert_med && master[f.montert_med]) {
+      master[f.montert_med].deler.push(delFor(f));
+      continue;
+    }
+    const forsteV = (f.skift_sporveksler || [])[0];
+    const inf = forsteV && bruk[forsteV];
+    const side = inf && ((inf.avvik && inf.avvik.side) ||
+                         (inf.normal && inf.normal.side));
+    if (!side) continue;
+    // frittstående skiftesignal på EGEN mast: står ved den første
+    // vekselen det gjelder for — utenfor den mot sin ende, på samme
+    // side av sporet som skiftebevegelsen ses fra (v = over,
+    // h = under), relativt til VEKSELENS egen rad
+    const over = side === "v";
+    const fv = vx[forsteV];
+    const vrad = fv && fv.pos ? fv.pos.rad : 0;
+    const vX = fv && fv.pos ? X(fv.pos.x)
+                            : (side === "h" ? X(cH) : X(cV));
+    master[`sk-${f.id}`] = {
+      // langt nok ut til å gå klar av utkjørmasten ved samme veksel
+      px: side === "v" ? vX - 150 : vX + 120,
+      py: over ? Y(vrad) - 33 : Y(vrad) + 33,
+      over, deler: [delFor(f)] };
+  }
+  for (const m of Object.values(master)) {
+    // fot mot enden masten vender: over = øst (høyre), under = vest.
+    // Topp->bunn tegnes MOT foten; delene i rekkefølge vert først.
+    const flat = [];
+    for (const d of m.deler)
+      d.farger.forEach((farge, i) =>
+        flat.push({ farge, id: d.ider[i],
+                    form: d.former && d.former[i] }));
+    const dir = m.over ? 1 : -1;   // topp først: øst-fot = venstre topp
+    const n = flat.length;
+    if (m.fotX !== undefined) {
+      // foten (tappenden av kapselen) ankres i vekselpunktet
+      m.px = m.over ? m.fotX - ((n - 1) * 15 + 19) : m.fotX + 19;
+    }
+    let deltekst = "", lamper = "";
+    // HUSET: én avrundet kapsel rundt ALLE lampene på masten (som
+    // kunstverket), med mastefot-tapp i fotenden. Tegnes under
+    // lampene; litraen ligger utenfor kapselen.
+    const alleX = flat.map((_, i) =>
+      m.px + (m.over ? i : n - 1 - i) * 15);
+    const hx0 = Math.min(...alleX) - 11, hx1 = Math.max(...alleX) + 11;
+    oppTatt.push({ x0: hx0 - 9, x1: hx1 + 9, y: m.py });
+    const fotHoyre = m.over;   // vender øst = fot mot høyre
+    const tapp = fotHoyre
+      ? `<rect x="${hx1 - 1}" y="${m.py - 5}" width="8" height="10" ` +
+        `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` +
+        `<path d="M${hx1 + 7},${m.py - 9} v18" stroke="#33363a" ` +
+        `stroke-width="1.5" fill="none"/>`
+      : `<rect x="${hx0 - 7}" y="${m.py - 5}" width="8" height="10" ` +
+        `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` +
+        `<path d="M${hx0 - 7},${m.py - 9} v18" stroke="#33363a" ` +
+        `stroke-width="1.5" fill="none"/>`;
+    // skiftesignal på EGEN mast har RETTE hjørner; hovedsignalmaster
+    // (og master med blandet innhold) beholder kapselformen
+    const bareSkift = m.deler.every(d => d.former);
+    const hus = `<rect x="${hx0}" y="${m.py - 11}" ` +
+      `width="${hx1 - hx0}" height="22" rx="${bareSkift ? 0 : 10}" ` +
+      `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` + tapp;
+    flat.forEach((l, i) => {
+      if (!l) return;
+      const cx = m.px + (m.over ? i : n - 1 - i) * 15;
+      let c;
+      if (l.form) {
+        // Høyt skiftesignal: strekbildene 41 (loddrett) og 42 (skrå)
+        // — masker over runde linser, aldri lengre enn lampediameteren
+        const rot = l.form === "strek42"
+          ? ` transform="rotate(-45 ${cx} ${m.py})"` : "";
+        c = `<rect${l.id ? ` id="${l.id}"` : ""} class="pl" ` +
+          `style="color:${l.farge}" x="${cx - 2}" y="${m.py - 6}" ` +
+          `width="4" height="12" rx="1.5"${rot}/>`;
+      } else {
+        c = `<circle${l.id ? ` id="${l.id}"` : ""} class="pl"` +
+          ` style="color:${l.farge}" cx="${cx}" cy="${m.py}" r="6"/>`;
+      }
+      lamper += c;
+    });
+    // navnene: ett per del, SENTRERT over delens egne lamper
+    let li = 0;
+    for (const d of m.deler) {
+      const i2 = li + d.farger.length - 1;
+      const x1 = m.px + (m.over ? li : n - 1 - li) * 15;
+      const x2 = m.px + (m.over ? i2 : n - 1 - i2) * 15;
+      const ty = (m.tekstOver !== undefined ? m.tekstOver : m.over)
+        ? m.py - 14 : m.py + 24;                   // alltid utsiden
+      deltekst += `<text class="pltekst" text-anchor="middle" ` +
+        `x="${(x1 + x2) / 2}" y="${ty}">${d.navn}</text>`;
+      li += d.farger.length;
+    }
+    s += `<g>${hus}${lamper}${deltekst}</g>`;
+  }
+  // BLÅ TOGVEILAMPE + SORT TRYKKNAPP: i kolonne rett under stilleren
+  // (fasit fra apparatet: lampe på +33, knapp på +56). Står en mast i
+  // veien (Grindvoll: ZL ved linjefeltet), flyttes hele kolonnen
+  // sidelengs i 13 px-steg til nærmeste frie plass, mot stasjonen
+  // først. Knappen sløyfes på linjefelt MED linjeblokk uten
+  // varselfelt (fjernstyrt strekning: ingen varselklokke å kvittere
+  // og ingen sistevognskontroll — Ktp hører til blokklampa, senere).
+  for (const k of knapper) {
+    const ly = Y(0) + 33, ky = Y(0) + 56;
+    const medKnapp = (PLK[k.lf].vf.length > 0) || !k.linjeblokk;
+    const ledig = x => !oppTatt.some(m2 =>
+      m2.y > Y(0) + 12 && m2.y < Y(0) + 70 &&
+      x + 9 > m2.x0 && x - 9 < m2.x1);
+    const lo = Math.min(k.o, k.i) + 10, hi = Math.max(k.o, k.i) - 10;
+    const inne = x => x >= lo && x <= hi;
+    let kx = k.xm;
+    if (!ledig(kx)) {
+      const dInn = k.i > k.o ? 1 : -1;      // mot stasjonen
+      for (let steg = 13; steg < 400; steg += 13) {
+        const a = k.xm + dInn * steg, b2 = k.xm - dInn * steg;
+        if (inne(a) && ledig(a)) { kx = a; break; }
+        if (inne(b2) && ledig(b2)) { kx = b2; break; }
+        if (!inne(a) && !inne(b2)) break;   // ingen fri plass: xm
+      }
+    }
+    s += `<circle id="pl-tv-${k.lf}" class="pl" style="color:#1f8fff" ` +
+      `cx="${kx}" cy="${ly}" r="6"/>`;
+    if (medKnapp)
+      s += `<g class="plknapp" id="pl-kn-${k.lf}" ` +
+        `onclick="plKnapp('${k.lf}')">` +
+        `<rect x="${kx - 12}" y="${ky - 12}" width="24" height="24" ` +
+        `fill="transparent"/>` +
+        `<circle class="knhode" cx="${kx}" cy="${ky}" r="7"/></g>`;
+  }
+  /* sperrene: på sporet/forbindelsen de ligger i */
+  const sperrer = fns.filter(f => f.type === "sporsperre");
+  const sperrePos = {};
+  for (const sp of sperrer) {
+    const li = ref(sp.ligger_i);
+    let p = null;
+    if (li && li.spor && sporKnute[li.spor]) {
+      // 40 px INN på båndet fra første koblingspunkt (mot den andre
+      // enden) — utenfor båndet ligger bare diagonaler og luft
+      const rad = rowOf[li.spor];
+      const pkt = sporKnute[li.spor][0];
+      const xs = sporKnute[li.spor].map(p2 => p2.x);
+      const innover = pkt.x <= Math.min(...xs) ? 1 : -1;
+      p = { x: X(pkt.x) + innover * 40, y: Y(rad) };
+    } else if (li && li.veksel && vx[li.veksel] && vx[li.veksel].pos) {
+      // «veksel N»: sperren tegnes over båndet NÆR vekselen den er
+      // knytta til — 48 px ut fra vekselpunktet langs forbindelsen
+      // slik den faktisk tegnes (45°-del + ev. vannrett innløp).
+      // 48 klarerer tungekontrollampa på greina (26 + linse 6 + luft).
+      // Stammeforbindelsen foretrekkes; ellers vekselens egen kant.
+      // (Sokna: Sp.II på 3-7-forbindelsen nær veksel 3 — den sperrer
+      // både spor 4 og 5; Sp.III på 9-5-innløpet nær veksel 9.)
+      const v = vx[li.veksel];
+      const lik = (p1, p2) => p1.rad === p2.rad && p1.x === p2.x;
+      const st = v.stamme && v.stamme.veksel && vx[v.stamme.veksel];
+      let ke2 = null;
+      if (st && st.pos)
+        ke2 = kanter.find(k =>
+          (lik(k.fra, v.pos) && lik(k.til, st.pos)) ||
+          (lik(k.fra, st.pos) && lik(k.til, v.pos)));
+      if (!ke2)
+        // stamme-relasjonen kan peke ANDRE veien: veksel 9 har
+        // stammen MOT 5 — Sp.III ligger på den forbindelsen, målt
+        // fra veksel 5
+        ke2 = kanter.find(k => {
+          const a = posAv[k.fra.rad + "|" + k.fra.x];
+          const b = posAv[k.til.rad + "|" + k.til.x];
+          const makker = lik(k.fra, v.pos) ? b
+                       : lik(k.til, v.pos) ? a : null;
+          return makker && vx[makker] && vx[makker].stamme &&
+                 vx[makker].stamme.veksel === li.veksel;
+        });
+      if (!ke2)
+        ke2 = kanter.find(k => lik(k.fra, v.pos) || lik(k.til, v.pos));
+      if (ke2) {
+        const [ax, ay] = P(ke2.fra.rad, ke2.fra.x);
+        const [bx, by] = P(ke2.til.rad, ke2.til.x);
+        const dx = bx - ax, dy = by - ay;
+        const pts = (dy !== 0 && Math.abs(dx) > Math.abs(dy))
+          ? [[ax, ay], [ax + Math.sign(dx) * Math.abs(dy), by], [bx, by]]
+          : [[ax, ay], [bx, by]];
+        const bane = lik(ke2.fra, v.pos) ? pts : pts.slice().reverse();
+        let rest = 48, pt = bane[0], ux = 1, uy = 0;
+        for (let i = 1; i < bane.length && rest > 0; i++) {
+          const sx2 = bane[i][0] - bane[i - 1][0];
+          const sy2 = bane[i][1] - bane[i - 1][1];
+          const sl = Math.hypot(sx2, sy2);
+          ux = sx2 / sl; uy = sy2 / sl;   // segmentets (=båndets) retning
+          if (rest <= sl) {
+            pt = [bane[i - 1][0] + sx2 * rest / sl,
+                  bane[i - 1][1] + sy2 * rest / sl];
+            rest = 0;
+          } else { pt = bane[i]; rest -= sl; }
+        }
+        p = { x: pt[0], y: pt[1], ux, uy };
+        // etikett: på skrå kant legges den på tvers av kanten, bort
+        // fra vekselens egen rad (ellers standard oppe til høyre)
+        if (Math.abs(pt[1] - Y(v.pos.rad)) > 4) {
+          const dside = pt[1] > Y(v.pos.rad) ? 1 : -1;
+          p.lx = p.x + 22; p.ly = p.y + dside * 22;
+        }
+      }
+    }
+    if (p) {
+      s += pbl.sperre(p.x, p.y, sp.id, p.ux || 1, p.uy || 0);
+      sperrePos[sp.id] = p;
+    }
+  }
+  const laaser = fns.filter(f => f.type === "samlelaas");
+  const rigler = fns.filter(f => f.type === "rigel");
+  let losX = 8;
+  for (const l of rigler) {
+    const sp = (l.omfatter || []).find(o => sperrePos[o]);
+    const p = sp ? sperrePos[sp] : { x: losX += 170, y: topp - 20 };
+    s += pbl.rigel(p.lx !== undefined ? p.lx : p.x + 24,
+                   p.ly !== undefined ? p.ly : p.y - 16,
+                   l.id, l.navn || l.id);
+  }
+  for (const l of laaser) {
+    // Omfatter låsen en TEGNET SPORSPERRE, står nøkkelfeltet over
+    // den (Grindvoll: S.lås I over Sp.I på sidesporet). Ellers ved
+    // TUNGA på den av låsens veksler som ligger LENGST FRA
+    // HOVEDSPORET (Sokna: nord for tunga på veksel 11) — utsiden av
+    // båndet. Alt avledet av omfatter-lista + rad/spiss.
+    const spm = (l.omfatter || []).find(o => sperrePos[o]);
+    if (spm) {
+      s += pbl.noekkelfelt(sperrePos[spm].x - 11,
+                           sperrePos[spm].y - 48, l.id, l.navn || l.id);
+      continue;
+    }
+    let mv = null;
+    for (const o of (l.omfatter || [])) {
+      const v = vx[o];
+      if (v && v.pos &&
+          (!mv || Math.abs(v.pos.rad) >= Math.abs(mv.pos.rad))) mv = v;
+    }
+    let p;
+    if (mv) {
+      const tx = X(mv.pos.x) + (mv.spiss === "v" ? -26 : 26);
+      const over = mv.pos.rad >= 0;   // sør for hovedsporet: under
+      p = { x: tx - 11, y: Y(mv.pos.rad) + (over ? -48 : 26) };
+    } else {
+      p = { x: losX += 170, y: topp - 30 };
+    }
+    s += pbl.noekkelfelt(p.x, p.y, l.id, l.navn || l.id);
+  }
+  // Omriss på sporbåndene, samme som lampene: hvert plspor-strøk
+  // tegnes først som et 3 px bredere mørkt understrøk — det grå
+  // båndet oppå etterlater 1 px kant. Skjøtene males over av
+  // naboens grå, så sammenhengende spor forblir sammenhengende.
+  // SKJØTENE: bånd som fortsetter i vinkel (rett -> diagonal) må
+  // GJÆRES, ikke buttes — ellers får både gråfargen og omrisset hakk
+  // i ytterhjørnet. Alle plspor-banene brytes derfor ned i segmenter,
+  // flettes til sammenhengende polylinjer gjennom alle punkter der
+  // nøyaktig to segmentender møtes, og tegnes så på nytt i to lag:
+  // mørkt underlag (omriss, +3 px) og grått bånd — begge med miter-
+  // gjæring. Åpne ender forlenges 1 px så endeflaten får kant.
+  // Punkter der TRE baner møtes (vekselpunktene) beholdes som butt:
+  // gjennomgående bånd er kollineære der (usynlig skjøt), og
+  // greinens ende dekkes av båndet den går inn i.
+  const parse = d => {
+    const t = d.match(/[MLHV][^MLHVa-z]+/g);
+    if (!t || t.join("") !== d) return null;
+    const pts = []; let x = 0, y = 0;
+    for (const seg of t) {
+      const k = seg[0];
+      const nums = seg.slice(1).trim().split(/[ ,]+/).map(Number);
+      if (nums.some(isNaN)) return null;
+      if (k === "M" || k === "L") { x = nums[0]; y = nums[1]; }
+      else if (k === "H") x = nums[0];
+      else if (k === "V") y = nums[0];
+      else return null;
+      pts.push([x, y]);
+    }
+    return pts.length >= 2 ? pts : null;
+  };
+  const segs = [], rest = [];
+  for (const m of s.matchAll(/<path class="plspor"([^>]*)\/>/g)) {
+    const attrs = m[1];
+    const d = (attrs.match(/ d="([^"]+)"/) || [])[1];
+    if (!d) continue;
+    const w = +((attrs.match(/stroke-width:\s*([\d.]+)/) || [])[1] || 12);
+    const pts = w === 12 ? parse(d) : null;
+    if (!pts) { rest.push({ d, w }); continue; }
+    for (let i = 1; i < pts.length; i++)
+      segs.push([pts[i - 1], pts[i]]);
+  }
+  const nk = p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+  const grad = {};
+  for (const [a, b] of segs) {
+    (grad[nk(a)] = grad[nk(a)] || []).push([a, b]);
+    (grad[nk(b)] = grad[nk(b)] || []).push([b, a]);
+  }
+  const brukt = new Set();
+  const kjeder = [];
+  const segId = (a, b) => [nk(a), nk(b)].sort().join("|");
+  for (const [a0, b0] of segs) {
+    if (brukt.has(segId(a0, b0))) continue;
+    // vandre begge veier gjennom grad-2-punkter
+    const kjede = [a0, b0];
+    brukt.add(segId(a0, b0));
+    for (const retn of [1, 0]) {
+      for (;;) {
+        const ende = retn ? kjede[kjede.length - 1] : kjede[0];
+        const naboer = grad[nk(ende)] || [];
+        if (naboer.length !== 2) break;
+        const neste = naboer.map(n => n[1])
+          .find(p => !brukt.has(segId(ende, p)));
+        if (!neste) break;
+        brukt.add(segId(ende, neste));
+        retn ? kjede.push(neste) : kjede.unshift(neste);
+      }
+    }
+    kjeder.push(kjede);
+  }
+  const ut = (a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const l = Math.hypot(dx, dy) || 1;
+    return [b[0] + dx / l * 1, b[1] + dy / l * 1];
+  };
+  let under = "", graa = "";
+  for (const kj of kjeder) {
+    const p = kj.map(q => [...q]);
+    if ((grad[nk(kj[0])] || []).length === 1)
+      p[0] = ut(p[1], p[0]);
+    if ((grad[nk(kj[kj.length - 1])] || []).length === 1)
+      p[p.length - 1] = ut(p[p.length - 2], p[p.length - 1]);
+    const dU = "M" + p.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`)
+                      .join(" L");
+    const dG = "M" + kj.map(q => `${q[0].toFixed(1)},${q[1].toFixed(1)}`)
+                       .join(" L");
+    under += `<path d="${dU}" fill="none" stroke="#33363a" ` +
+      `stroke-width="14" stroke-linecap="butt" stroke-linejoin="miter"/>`;
+    graa += `<path d="${dG}" fill="none" stroke="#8d9094" ` +
+      `stroke-width="12" stroke-linecap="butt" stroke-linejoin="miter"/>`;
+  }
+  for (const r of rest)   // baner som ikke lot seg flette
+    under += `<path d="${r.d}" fill="none" stroke="#33363a" ` +
+      `stroke-width="${r.w + 2}" stroke-linecap="butt"/>`;
+  s = `<g>${under}${graa}</g>` + s;
+  /* ---- BETJENINGSFELTET (grønn flate under transparenten) ----
+     Nedre del av apparatet, farger etter dagens regelverk (ORV
+     kap. 3.3): skiftesignalstillere RØDE (blir stående),
+     sporvekselstillere BLÅ (tilbakefjærende, + opp / − ned),
+     frigivning av samlelås/rigel BLÅ (blir stående), Lok-frigivning
+     GULE, Jord sort og Sign.stp rød trykknapp med felles kontrollampe
+     (signalstopp/jordfeil), amperemeter i midten. */
+  const bsSkiftL = fns.filter(f =>
+    String(f.type).startsWith("skiftesignal"));
+  const bsVeksL = Object.keys(vSentral).filter(l => vSentral[l])
+    .sort((a, b) => a.localeCompare(b, "nb", { numeric: true }));
+  const BSH = 150, bsY0 = H, bsCy = H + 78;
+  // Amperemeteret står SENTRERT på panelet, Jord og Sign.stp. ved
+  // siden av hverandre OVER det. Stillerne fordeles til venstre og
+  // høyre for midten etter hvilken side av transparenten objektet
+  // hører til, i rekkefølge fra midten og utover: S-lås, rigel,
+  // vekselstiller, lokal frigiving, skiftesignal.
+  const bsMidt = W / 2;
+  const sideAvX = x => (x < bsMidt ? "v" : "h");
+  const bsSkiftSide = f => {
+    const m = master[`sk-${f.id}`] ||
+              (f.montert_med && master[f.montert_med]);
+    return m ? sideAvX(m.px) : "h";
+  };
+  const bsVekselSide = l =>
+    vx[l] && vx[l].pos ? sideAvX(X(vx[l].pos.x)) : "v";
+  const bsLaasSide = l => {
+    for (const o of l.omfatter || []) {
+      if (vx[o] && vx[o].pos) return sideAvX(X(vx[o].pos.x));
+      if (sperrePos[o]) return sideAvX(sperrePos[o].x);
+    }
+    return "v";
+  };
+  const bsSide = side => {
+    const ut = [];
+    for (const l of laaser)
+      if (bsLaasSide(l) === side)
+        ut.push({ slag: "samlelaas", id: l.id, farge: "#2b6fc2",
+                  navn: l.navn || l.id, w: 88 });
+    for (const l of rigler)
+      if (bsLaasSide(l) === side)
+        ut.push({ slag: "rigel", id: l.id, farge: "#2b6fc2",
+                  navn: l.navn || l.id, w: 96 });
+    for (const l of bsVeksL)
+      if (bsVekselSide(l) === side)
+        ut.push({ slag: "veksel", id: l, farge: "#2b6fc2",
+                  navn: l, pluss: true });
+    ut.push({ slag: "lok", id: side, farge: "#d8a400",
+              navn: side === "v" ? "Lok I" : "Lok II",
+              lampe: `bs-la-lok-${side}` });
+    for (const f of bsSkiftL)
+      if (bsSkiftSide(f) === side)
+        ut.push({ slag: "skift", id: f.id, farge: "#c9342a",
+                  navn: f.id });
+    return ut;
+  };
+  s += `<rect x="${-kantV}" y="${bsY0}" ` +
+    `width="${W + kantV + kantH}" height="${BSH}" fill="#46704f"/>`;
+  const bsTegn = (it, cx) => {
+    s += `<g class="bs">` +
+      (it.pluss
+        ? `<text class="bstegn" x="${cx}" y="${bsCy - 32}">+</text>` +
+          `<text class="bstegn" x="${cx}" y="${bsCy + 42}">−</text>`
+        : "") +
+      (it.lampe
+        ? `<circle id="${it.lampe}" class="pl" ` +
+          `style="color:#e8e8dc" cx="${cx}" cy="${bsCy - 38}" r="6"/>`
+        : "") +
+      `<rect x="${cx - 2.5}" y="${bsCy - 24}" width="5" height="48" ` +
+      `rx="2.5" fill="#24262a"/>` +
+      `<circle id="bs-kn-${it.slag}-${it.id}" class="bskn" ` +
+      `cx="${cx}" cy="${bsCy}" r="8" fill="${it.farge}" ` +
+      `stroke="#1c1e21" stroke-width="1.5" pointer-events="none"/>` +
+      `<rect x="${cx - 15}" y="${bsCy - 26}" width="30" height="26" ` +
+      `fill="transparent" ` +
+      `onclick="bsDytt('${it.slag}','${it.id}','opp')"/>` +
+      `<rect x="${cx - 15}" y="${bsCy}" width="30" height="26" ` +
+      `fill="transparent" ` +
+      `onclick="bsDytt('${it.slag}','${it.id}','ned')"/>` +
+      `<text class="bsnavn" x="${cx}" ` +
+      `y="${bsCy + (it.pluss ? 56 : 42)}">${it.navn}</text></g>`;
+  };
+  // midtgruppen: kontrollampe (signalstopp/jordfeil) øverst, Jord og
+  // Sign.stp. ved siden av hverandre, amperemeteret under
+  const ampCy = bsY0 + 96, knCy = bsY0 + 36;
+  s += `<circle id="bs-la-stopp" class="pl" style="color:#ff2a1e" ` +
+    `cx="${bsMidt}" cy="${bsY0 + 12}" r="6"/>` +
+    `<g class="bs"><circle id="bs-knapp-jord" cx="${bsMidt - 24}" ` +
+    `cy="${knCy}" r="10" fill="#111" stroke="#585b60" ` +
+    `stroke-width="1.5" onclick="bsJord()"/>` +
+    `<text class="bsnavn" x="${bsMidt - 24}" y="${knCy + 24}">` +
+    `Jord</text></g>` +
+    `<g class="bs"><circle id="bs-knapp-stopp" cx="${bsMidt + 24}" ` +
+    `cy="${knCy}" r="10" fill="#c9342a" stroke="#585b60" ` +
+    `stroke-width="1.5" onclick="bsStopp()"/>` +
+    `<text class="bsnavn" x="${bsMidt + 24}" y="${knCy + 24}">` +
+    `Sign.stp.</text></g>` +
+    `<g><circle cx="${bsMidt}" cy="${ampCy}" r="20" ` +
+    `fill="#f5f2e6" stroke="#33363a" stroke-width="1.5"/>` +
+    `<line id="pl-amp" x1="${bsMidt}" y1="${ampCy + 6}" ` +
+    `x2="${bsMidt - 11}" y2="${ampCy - 8}" stroke="#111" ` +
+    `stroke-width="2"/>` +
+    `<text class="bsnavn" x="${bsMidt}" y="${ampCy + 34}">Amp.</text>` +
+    `</g>`;
+  let bsXV = bsMidt - 56;               // venstre side, fra midten ut
+  for (const it of bsSide("v")) {
+    const w = it.w || 64;
+    bsTegn(it, bsXV - w / 2);
+    bsXV -= w;
+  }
+  let bsXH = bsMidt + 56;               // høyre side, fra midten ut
+  for (const it of bsSide("h")) {
+    const w = it.w || 64;
+    bsTegn(it, bsXH + w / 2);
+    bsXH += w;
+  }
+  holder.innerHTML =
+    `<svg id="plansvg" viewBox="${-kantV} 0 ${W + kantV + kantH} ` +
+    `${H + BSH}" ` +
+    `xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+  /* ---- tilstandsbindingene ---- */
+  for (const fid of Object.keys(feltAv))
+    planBind(`sporfelt/${fid}/state`, pl => {
+      const m = pl === "fri" ? "pa" : "av";
+      plSet(`pl-fl-${fid}`, m);
+      plSet(`pl-fl-${fid}-b`, m);   // togsporene har to lamper
+    });
+  // Varselfeltlampa lyser FAST når feltet er fritt (som de andre
+  // sporfeltlampene), blinker ved melding (tog i anmarsj), slukket
+  // ved belegg — kombinert av begge tilstandstemaene
+  for (const vf of varsel) {
+    const oppdater = () => {
+      const m = TIL[`varselfelt/${vf.id}/state`];
+      const f2 = TIL[`sporfelt/${vf.id}/state`];
+      plSet(`pl-vfl-${vf.id}`, m === "melding" ? "blink"
+            : f2 === "fri" ? "pa" : "av");
+    };
+    planBind(`varselfelt/${vf.id}/state`, oppdater);
+    planBind(`sporfelt/${vf.id}/state`, oppdater);
+  }
+  const tvOver = {};
+  for (const t of tvs) {
+    const lf = lfFor(t);
+    if (lf) (tvOver[lf] = tvOver[lf] || []).push(t.id);
+  }
+  for (const [lf, ids] of Object.entries(tvOver)) {
+    const oppdater = () => {
+      const st = ids.map(id => TIL[`togvei/${id}/state`]);
+      plSet(`pl-tv-${lf}`,
+            st.includes("aktiv") ? "pa"
+          : st.some(x => x === "sikring" || x === "klar-utlos" ||
+                         x === "hjelpeutlosning") ? "blink" : "av");
+    };
+    for (const id of ids) planBind(`togvei/${id}/state`, oppdater);
+  }
+  for (const litra of Object.keys(vx))
+    planBind(`sporveksel/${litra}/state`, pl => {
+      // uten tungekontroll (ingen sensorer, eller stilling ikke
+      // bekreftet) er lampene bare SLUKKET — de blinker aldri
+      if (!vSens[litra]) {
+        plSet(`pl-vn-${litra}`, "av");
+        plSet(`pl-va-${litra}`, "av");
+        return;
+      }
+      plSet(`pl-vn-${litra}`, pl === "normal" ? "pa" : "av");
+      plSet(`pl-va-${litra}`, pl === "avvik" ? "pa" : "av");
+    });
+  // sporvekselfeltlampene: som de andre feltlampene — lyser når
+  // feltet er FRITT, slukker ved belegg
+  for (const [litra, bf] of Object.entries(vFeltAv))
+    planBind(`sporfelt/${bf}/state`, pl =>
+      plSet(`pl-vfb-${litra}`, pl === "fri" ? "pa" : "av"));
+  // SIGNALBILDENE styres av signaltyper-tabellen i konfig — samme
+  // fasit som master driver de fysiske linsene med: bilder[state]
+  // gir av/pa/blink per lampeindeks, delFor.cfg oversetter til
+  // tegnet posisjon. Ukjent bilde (f.eks. «slukket» som mangler i
+  // tabellen) slukker alle lampene.
+  for (const f of fns) {
+    const kl = sigKl(f) ||
+      (String(f.type).startsWith("skiftesignal") ? "skiftesignal" : null);
+    if (!kl || kl === "dvergsignal") continue;
+    const bilder = (K.hal.signaltyper[f.type] || {}).bilder || {};
+    const d = delFor(f);
+    planBind(`${kl}/${f.id}/state`, pl => {
+      const b = bilder[pl];
+      d.ider.forEach((id, i) => {
+        const m = b ? b[d.cfg[i]] : "av";
+        plSet(id, m === "pa" ? "pa" : m === "blink" ? "blink" : "av");
+      });
+    });
+  }
+  // Én kontrollampe per lås, FAST lys når låst (Nelaug-regelen:
+  // tent = i kontroll) — aldri blink. Sperresymbolet har ingen egen
+  // lampe; rigel-etikettens lampe bærer gruppen.
+  for (const l of laaser)
+    planBind(`samlelaas/${l.id}/state`, pl =>
+      plSet(`pl-sl-${l.id}`, pl === "sperret" ? "pa" : "av"));
+  for (const l of rigler)
+    planBind(`rigel/${l.id}/state`, pl =>
+      plSet(`pl-ri-${l.id}`, pl === "sperret" ? "pa" : "av"));
+  /* betjeningsfeltet: de stående stillerne følger tilstanden */
+  for (const f of bsSkiftL)
+    planBind(`skiftesignal/${f.id}/state`, v =>
+      bsSett("skift", f.id,
+             v === "skifting-tillatt" || v === "skifting-forbudt"));
+  for (const l of laaser)
+    planBind(`samlelaas/${l.id}/state`, v =>
+      bsSett("samlelaas", l.id, !!v && v !== "sperret"));
+  for (const l of rigler)
+    planBind(`rigel/${l.id}/state`, v =>
+      bsSett("rigel", l.id, !!v && v !== "sperret"));
+  planBind("master/frigivning", v => {
+    let o = {};
+    try { o = JSON.parse(v); } catch (e) { /* uparselig: alt av */ }
+    bsSett("lok", "v", !!o.venstre);
+    bsSett("lok", "h", !!o.hoyre);
+    plSet("bs-la-lok-v", o.venstre ? "pa" : "av");
+    plSet("bs-la-lok-h", o.hoyre ? "pa" : "av");
+  });
+  const bsStoppLampe = () =>
+    plSet("bs-la-stopp",
+          TIL["master/signalstopp"] === "paa" ||
+          TIL["master/jord"] === "sperret" ? "pa" : "av");
+  planBind("master/signalstopp", bsStoppLampe);
+  planBind("master/jord", bsStoppLampe);
+}
+</script>
+</body>
+</html>

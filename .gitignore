@@ -1,0 +1,13 @@
+# Konfigurasjonen skapes av HAL-UI på Pi-en der den kjører — den er
+# anleggets egen, ikke repoets. eksempler/ er derimot sporet.
+nsi63-pi/hal-ui/hal.json
+nsi63-pi/hal-ui/forrigling.json
+nsi63-pi/hal-ui/anlegg.json
+
+# Svartboksloggen (skapes av app.py der den kjører)
+nsi63-pi/hal-ui/hendelser.jsonl*
+
+# Lokalt rusk
+__pycache__/
+.pytest_cache/
+.DS_Store

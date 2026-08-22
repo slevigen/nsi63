@@ -1,0 +1,153 @@
+{
+  "version": "2026-08-21 10:26:46",
+  "togveier": [
+    {
+      "id": "A01",
+      "start": "A",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "A",
+        "1",
+        "01"
+      ],
+      "utlosningsfelt": "1"
+    },
+    {
+      "id": "A02",
+      "start": "A",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "avvik"
+        },
+        {
+          "sporveksel": "3",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "A",
+        "1",
+        "02"
+      ],
+      "utlosningsfelt": "1"
+    },
+    {
+      "id": "B01",
+      "start": "B",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "B",
+        "2",
+        "01"
+      ],
+      "utlosningsfelt": "2"
+    },
+    {
+      "id": "B02",
+      "start": "B",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "avvik"
+        },
+        {
+          "sporveksel": "4",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "B",
+        "2",
+        "02"
+      ],
+      "utlosningsfelt": "2"
+    },
+    {
+      "id": "01A",
+      "start": "M",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "1",
+        "A"
+      ],
+      "utlosningsfelt": "1"
+    },
+    {
+      "id": "02A",
+      "start": "O",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "avvik"
+        },
+        {
+          "sporveksel": "3",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "1",
+        "A"
+      ],
+      "utlosningsfelt": "1"
+    },
+    {
+      "id": "01B",
+      "start": "L",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "2",
+        "B"
+      ],
+      "utlosningsfelt": "2"
+    },
+    {
+      "id": "02B",
+      "start": "N",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "avvik"
+        },
+        {
+          "sporveksel": "4",
+          "stilling": "normal"
+        }
+      ],
+      "frie": [
+        "2",
+        "B"
+      ],
+      "utlosningsfelt": "2"
+    }
+  ]
+}
