@@ -232,3 +232,17 @@ td.m-ok { background:#16241a; }
           align-self:stretch; text-align:center; min-width:0;
           overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+
+/* Symbolforklaringen. Formen er hele poenget med rutenettet, så den
+   må stå der man ser den — ikke bare i tooltipene. Gruppert etter
+   hva som spør: farge, symbol, form. */
+.kb-nokler { margin-top:12px; padding-top:10px;
+             border-top:1px solid var(--line);
+             font-family:ui-monospace, Menlo, monospace;
+             font-size:11.5px; color:var(--dim); }
+.kb-nokkelrad { display:flex; flex-wrap:wrap; gap:4px 18px;
+                align-items:center; margin-bottom:5px; }
+.kb-nokkelrad b { color:var(--acc); min-width:52px; font-weight:600; }
+.kb-nokkelrad > span { display:inline-flex; align-items:center; gap:5px; }
+.kb-symnok { display:inline-block; min-width:15px; text-align:center;
+             color:var(--fg); font-size:13px; }

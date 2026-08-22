@@ -1538,15 +1538,39 @@ function kbRender() {
     }
     h += `</div>`;
   }
+  // Symbolforklaring. Uten den må man gjette hva ◎ betyr, og formen
+  // er hele poenget med visningen.
+  const sym = [
+    ["\u25cf", "lampe (i lampens egen farge)"],
+    ["\u25cb", "kontrollampe"],
+    ["\u21c4", "drivutgang — motor"],
+    ["\u25ce", "sensor"],
+    ["\u25a3", "betjening — stiller eller trykknapp"],
+    ["\u266a", "klokke"],
+    ["\u25b3", "amperemeter"],
+    ["\u25aa", "annen utgang — reservert port"],
+  ];
   el.innerHTML = h +
-    `<p class="hint" style="margin-top:10px">` +
-    `<span class="kb-nokkel kb-c-fri"></span> ledig &nbsp; ` +
-    `<span class="kb-nokkel kb-c-inn"></span> bundet inngang &nbsp; ` +
-    `<span class="kb-nokkel kb-c-ut"></span> bundet utgang &nbsp; ` +
-    `sammenhengende flis = ett signals lampespenn, med lampens ` +
-    `farge per kanal &nbsp; ` +
-    `<span class="kb-nokkel kb-c-feil"></span> kollisjon. ` +
-    `Hold over for detaljer, klikk for å redigere objektet.</p>`;
+    `<div class="kb-nokler">` +
+    `<div class="kb-nokkelrad"><b>Farge</b>` +
+    `<span><span class="kb-nokkel kb-c-fri"></span> ledig</span>` +
+    `<span><span class="kb-nokkel kb-c-inn"></span> bundet inngang</span>` +
+    `<span><span class="kb-nokkel kb-c-ut"></span> bundet utgang</span>` +
+    `<span><span class="kb-nokkel kb-c-feil"></span> ` +
+    `<span class="kb-symnok">\u2715</span> kollisjon</span>` +
+    `</div>` +
+    `<div class="kb-nokkelrad"><b>Symbol</b>` +
+    sym.map(([t, f]) =>
+      `<span><span class="kb-symnok">${t}</span> ${f}</span>`).join("") +
+    `</div>` +
+    `<div class="kb-nokkelrad"><b>Form</b>` +
+    `<span>sammenhengende fliser = ett signals lampespenn, ` +
+    `én kanal per lampe</span>` +
+    `<span>tre linjer i cellen: portnummer \u00b7 symbol \u00b7 litra</span>` +
+    `</div>` +
+    `<p class="hint" style="margin:6px 0 0">Hold over en celle for ` +
+    `detaljer, klikk for å redigere objektet på Objekter-siden.</p>` +
+    `</div>`;
 }
 // Hopp til objektet på Objekter-siden, utfoldet
 function kbGaaTil(litra, type) {
