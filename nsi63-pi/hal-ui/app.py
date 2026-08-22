@@ -1168,6 +1168,8 @@ def _topologi_feil(functions):
     # Skiftesignalets område må peke på veksler som finnes
     veksler = {f.get("id") for f in functions
                if str(f.get("type", "")).startswith("sporveksel")}
+    sentralstilte = {f.get("id") for f in functions
+                     if f.get("type") == "sporveksel"}
     sperrer_ids = {f.get("id") for f in functions
                    if f.get("type") == "sporsperre"}
     for f in functions:
@@ -1175,6 +1177,17 @@ def _topologi_feil(functions):
             if v not in veksler:
                 feil.append(f"skiftesignal {f.get('id')} viser til "
                             f"ukjent veksel {v}")
+            elif v not in sentralstilte:
+                # Signalet FØLGER vekslene sine: 41 så lenge en av dem
+                # er i bevegelse eller uten kontroll, 42 når stillingen
+                # er bekreftet. En lokalstilt veksel melder aldri
+                # kontroll og blir stående V_UKJENT — tas den med,
+                # låses signalet i 41 for alltid. Stille i drift,
+                # derfor avvist her.
+                feil.append(f"skiftesignal {f.get('id')}: sporveksel {v} "
+                            f"er lokalstilt — et høyt skiftesignal "
+                            f"følger bare sentralstilte veksler, og "
+                            f"ville blitt stående i «skifting forbudt»")
         # Låsegruppenes virkeområde (samlelås/rigel): et omfatter-
         # litra UTEN objekt i anlegget er LOV — det er en helt manuell
         # veksel/sperre, eller en som drives av kundens eget utstyr
@@ -2042,6 +2055,11 @@ PAGE = """<!doctype html>
   th { color:var(--dim); font-size:11px; text-transform:uppercase;
        letter-spacing:.08em; }
   th.grp { text-align:center; color:var(--acc); }
+  /* Avkryssingsbokser må unntas width:100% under — ellers strekkes
+     selve boksen over hele etiketten, og teksten havner langt til
+     høyre for den. Gjelder alle avkryssinger i UI-et. */
+  input[type=checkbox] { width:auto; margin:0 4px 0 0;
+                         vertical-align:middle; }
   input, select { width:100%; background:var(--bg); color:var(--fg);
                   border:1px solid var(--line); border-radius:4px;
                   padding:5px 7px; font:inherit; }
@@ -2811,22 +2829,53 @@ function fillLinjeSel(sel) {   // nedtrekk over linjefelt-litraer
 // anlegget. Området er vekslene signalet GJELDER FOR (A-sirk. 3) —
 // stasjonsenden følger med gjennom vekselens utledede ende, så
 // skiltet trenger ingen egen venstre/høyre.
-function skiftVekselBoks(tr, medSperrer) {
-  // medSperrer: låsegruppene (samlelås/rigel) kan også omfatte
-  // sporsperrer — skiftesignalets område er fortsatt bare veksler
+function skiftVekselBoks(tr, gruppe) {
+  // To ulike utvalg, av samme grunn som i forbildet:
+  //
+  //   gruppe=false — HØYT SKIFTESIGNAL. Bare SENTRALSTILTE veksler.
+  //     Signalet følger vekslene sine: det viser 41 så lenge en av dem
+  //     er i bevegelse eller uten kontroll, og 42 igjen når stillingen
+  //     er bekreftet. En lokalstilt veksel har ingen kontroll å gi —
+  //     den blir stående V_UKJENT — så tas den med, låses signalet i
+  //     41 for alltid og kommer aldri til 42.
+  //
+  //   gruppe=true — SAMLELÅS/RIGEL. Motsatt: det er nettopp de
+  //     lokalstilte vekslene og sporsperrene låsen finnes for.
+  //     Sentralstilte tas med der de inngår i låsegruppen.
   const valgt = new Set(JSON.parse(tr.dataset.skiftv || "[]"));
+  const vist = new Set();
   let out = "";
   for (const r of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     const rt = r.querySelector(".f-type").value;
-    if (!rt.startsWith("sporveksel") && !(medSperrer && isSperre(rt)))
-      continue;
+    const passer = gruppe ? (rt.startsWith("sporveksel") || isSperre(rt))
+                          : rt === "sporveksel";
+    if (!passer) continue;
     const id = r.querySelector(".f-id").value.trim();
     if (!id) continue;
-    out += `<label style="margin-right:6px;white-space:nowrap">` +
+    vist.add(id);
+    out += `<label style="margin-right:8px;white-space:nowrap">` +
            `<input type="checkbox" class="f-skiftv" value="${attr(id)}" ` +
-           `${valgt.has(id) ? "checked" : ""}> ${id}</label>`;
+           `${valgt.has(id) ? "checked" : ""}>${id}</label>`;
   }
-  return out || `<span class="hint">ingen veksler definert</span>`;
+  // Alt som ALT er valgt, men ikke hører hjemme i utvalget over, vises
+  // likevel — avkrysset og merket. Uten dette ville en konfig som
+  // inneholder en lokalstilt veksel på et skiftesignal bli avvist av
+  // valideringen UTEN at raden ga noen måte å fjerne den på: feilen
+  // ville vært synlig og uopprettelig på samme tid.
+  for (const id of valgt) {
+    if (vist.has(id)) continue;
+    out += `<label style="margin-right:8px;white-space:nowrap;` +
+           `color:var(--warn,#e0c23c)" ` +
+           `title="Hører ikke hjemme her — fjern avkryssingen. ` +
+           `Enten er objektet slettet, eller det er en lokalstilt ` +
+           `veksel, som et høyt skiftesignal ikke kan følge.">` +
+           `<input type="checkbox" class="f-skiftv" value="${attr(id)}" ` +
+           `checked>${id} ⚠</label>`;
+  }
+  if (out) return out;
+  return `<span class="hint">${gruppe
+    ? "ingen veksler eller sporsperrer definert"
+    : "ingen sentralstilte veksler definert"}</span>`;
 }
 // Linjefelt-velger for samlelåsens sperrer-avgrensning (maks 2 —
 // masterens tabellgrense). Leser rolle fra select-en når raden er
