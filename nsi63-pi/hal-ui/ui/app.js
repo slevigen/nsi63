@@ -565,7 +565,10 @@ function addRow(f, foerEl) {
   tr.innerHTML = `
     <td class="litra"><span class="tregren"></span><span class="rad-pil" onclick="radToggle(this)"
               title="Vis eller skjul portene for dette objektet">▸</span>` +
-      `<input class="f-id" value="${attr(f.id)}" placeholder="A"></td>
+      `<input class="f-id" maxlength="6" value="${attr(f.id)}" ` +
+      `placeholder="A" title="Litra — maks 6 tegn. Kort litra er ` +
+      `forbildets egen skrivemåte (A, 01, ZM, SpIII), og det er det ` +
+      `som får plass i portrutenettet og på panelet."></td>
     <td><select class="f-type" onchange="typeChanged(this)">
         ${(GRUPPER[gruppeIdx(t)].typer.includes(t)
            ? GRUPPER[gruppeIdx(t)].typer
@@ -1560,7 +1563,7 @@ function kbRutenett() {
            // Kolonnetallet settes PER BRIKKE, ellers reserverer grid-en
            // 16 spor også for en PCF8574 og bredden slutter å bety noe.
            `<div class="kb-grid" style="grid-template-columns:` +
-           `repeat(${Math.min(kap, KB_KOL)}, 44px)">`;
+           `repeat(${Math.min(kap, KB_KOL)}, 48px)">`;
       for (let p = 0; p < kap; p++) {
         const her = porter[p];
         if (!her) {

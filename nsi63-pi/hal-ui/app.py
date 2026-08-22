@@ -60,6 +60,14 @@ MAX_TOGVEIER      = 32    # kMaxTogveier
 MAX_TV_VEKSLER    = 6     # kMaxTvVeksler
 MAX_TV_FELT       = 8     # kMaxTvFelt
 MAX_TV_LAASER     = 3     # kMaxTvLaaser
+# Masterens HalEntry.id og Togvei.id er char[24] og fylles med
+# strlcpy — en lengre litra AVKORTES I STILLHET. Da ville master
+# publisert tilstand på et annet tema enn UI-et og panelet lytter på,
+# og objektet sett dødt ut uten en eneste feilmelding. HAL-UI setter
+# maks 6 tegn på nye litra (forbildets egen skrivemåte: A, 01, ZM,
+# SpIII); denne grensen er sikkerhetsnettet for håndredigerte
+# konfigurasjoner og gjenopprettede backup-filer.
+MAX_LITRA         = 23    # sizeof(HalEntry::id) - 1
 # PubSubClient-bufferen i master (setBufferSize). HELE MQTT-pakken må
 # få plass — nyttelast + tema + header — ellers forkaster biblioteket
 # meldingen i STILLHET: callbacket kjører aldri, master beholder
@@ -1408,6 +1416,11 @@ def api_save():
             return jsonify({"error": f"Litra «{fid}»: tegnet '{tegn}' er "
                             f"ulovlig (brukes i MQTT-temaer — prøv f.eks. "
                             f"bindestrek i stedet)"}), 400
+        if len(fid) > MAX_LITRA:
+            return jsonify({"error": f"Litra «{fid}» er {len(fid)} tegn — "
+                            f"master avkorter til {MAX_LITRA} og ville "
+                            f"publisert på et annet tema enn UI-et lytter "
+                            f"på. Bruk et kort litra, som forbildet."}), 400
         ns = litra_ns(f.get("type"), st_map)
         if (ns, fid) in seen:
             return jsonify({"error": f"Duplikat litra i samme gruppe: "

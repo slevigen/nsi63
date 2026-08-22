@@ -167,7 +167,10 @@ td.m-ok { background:#16241a; }
    bredde blir dens kapasitet — en PCF8574 er synlig halvparten så
    bred. MÅ samsvare med KB_KOL i app.js, som holder lampespenn fra å
    tegnes sammenhengende over et radskift. */
-.kb-grid { display:grid; grid-template-columns:repeat(16, 44px);
+/* 48 px: seks brede versaler er grensen HAL-UI setter på nye litra,
+   og de skal få plass uten ellipse. Kolonnetallet settes per brikke i
+   app.js — bredden der MÅ være den samme som her. */
+.kb-grid { display:grid; grid-template-columns:repeat(16, 48px);
            gap:3px; width:max-content; }
 /* Innholdet ligger mot TOPPEN, ikke sentrert: da står portnumrene på
    linje tvers over brikken enten cellen er tom eller har et objekt
@@ -179,7 +182,7 @@ td.m-ok { background:#16241a; }
             border:1px solid var(--line); font-size:11px;
             display:flex; flex-direction:column; justify-content:flex-start;
             align-items:center; line-height:1.15; overflow:hidden;
-            padding:3px 0 14px; }
+            padding:3px 2px 3px; }
 .kb-celle[onclick] { cursor:pointer; }
 .kb-celle[onclick]:hover { outline:1px solid var(--acc); }
 .kb-nr { color:var(--dim); font-size:9.5px; }
@@ -216,6 +219,18 @@ td.m-ok { background:#16241a; }
              border-radius:3px; vertical-align:-1px;
              border:1px solid var(--line); }
 
-/* Lampen på en signalkanal: fargen lyset faktisk har. Gjør at
-   rekkefølgen på kabelen kan sammenliknes med signalhodet. */
+/* Litraen nederst i cellen. align-self:stretch og min-width:0, IKKE
+   max-width: et flex-element har min-width:auto og flyter over
+   uansett maksbredde. Uten dette ble et langt navn klippet på BEGGE
+   sider av cellens overflow:hidden — man så midten av navnet, uten
+   tegn på at noe manglet. Nå avkortes det med ellipse, og hele navnet
+   står i tooltipen. */
+/* 10 px: seks vanlige tegn (ABCDEF, SpIII, Jord) får plass i en
+   48 px celle. Seks brede versaler gjør det ikke på noen fornuftig
+   størrelse — de avkortes med ellipse, og hele navnet står i
+   tooltipen. Det er ikke verdt å krympe alle for et tilfelle som
+   ikke oppstår i et litra. */
+.kb-lit { font-weight:600; font-size:10px; margin-top:auto;
+          align-self:stretch; text-align:center; min-width:0;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
