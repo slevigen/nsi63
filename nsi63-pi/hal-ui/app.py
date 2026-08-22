@@ -2132,7 +2132,10 @@ def api_forget():
 # før de rulles ut (node --check ui/app.js).
 UI_DIR = Path(__file__).resolve().parent / "ui"
 UI_FILER = {"app.js": "application/javascript",
-            "app.css": "text/css"}
+            "app.css": "text/css",
+            # Lampefargene deles med stillerapparatet (/panel), så de
+            # to ikke kan si ulike ting om samme signal.
+            "signalfarger.js": "application/javascript"}
 
 
 @app.get("/ui/<fil>")

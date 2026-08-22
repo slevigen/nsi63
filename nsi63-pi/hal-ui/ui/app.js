@@ -1493,6 +1493,9 @@ function kbRender() {
 // men vakten under står likevel: den er det som holder en flis fra å
 // late som den henger sammen over et radskift.
 const KB_KOL = 16;
+// Lampefargene ligger i ui/signalfarger.js — DELT med
+// stillerapparatet, så kablingsvisningen og panelet ikke kan vise
+// ulik farge på samme kanal.
 function kbBrikkeKap(a) {
   return a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
 }
@@ -1568,11 +1571,18 @@ function kbRutenett() {
                      (y.av > 1 ? ` (lampe ${y.del + 1} av ${y.av})` : ""))
                      .join("  +  ");
         const vis = (spenn && x0.del > 0 && !radstart) ? "" : x0.litra;
+        // Lampesignal: vis kanalens FARGE. Da ser man at port 0, 1, 2
+        // er grønn-rød-grønn på et hovedsignal, og at rekkefølgen på
+        // kabelen stemmer med signalhodet — noe et litra ikke kan si.
+        const farge = (her.length === 1 && !konflikt)
+                        ? signalLampeFarge(x0.type, x0.del) : null;
+        const lampe = farge
+          ? `<span class="kb-lampe" style="background:${farge}"></span>` : "";
         h += `<div class="kb-celle ${kls}" title="port ${p}: ${attr(tips)}"` +
              ` onclick="kbGaaTil('${attr(x0.litra)}',` +
              `'${attr(x0.type)}')">` +
              `<span class="kb-nr">${p}</span>` +
-             `<span class="kb-lit">${attr(vis)}</span></div>`;
+             `<span class="kb-lit">${lampe}${attr(vis)}</span></div>`;
       }
       h += `</div>`;
     }
@@ -1583,7 +1593,8 @@ function kbRutenett() {
     `<span class="kb-nokkel kb-c-fri"></span> ledig &nbsp; ` +
     `<span class="kb-nokkel kb-c-inn"></span> bundet inngang &nbsp; ` +
     `<span class="kb-nokkel kb-c-ut"></span> bundet utgang &nbsp; ` +
-    `sammenhengende flis = ett signals lampespenn &nbsp; ` +
+    `sammenhengende flis = ett signals lampespenn, med lampens ` +
+    `farge per kanal &nbsp; ` +
     `<span class="kb-nokkel kb-c-feil"></span> kollisjon. ` +
     `Hold over for detaljer, klikk for å redigere objektet.</p>`;
 }

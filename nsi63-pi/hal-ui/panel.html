@@ -127,6 +127,7 @@
   panelet viser ikke gyldig tilstand</span></div>
 
 <script src="/panel/mqtt.js"></script>
+<script src="/ui/signalfarger.js"></script>
 <script>
 "use strict";
 /* ---------- tilstand ---------- */
@@ -1401,27 +1402,30 @@ function byggPlan(fns) {
     const nLys = (K.hal.signaltyper[f.type] || {}).lamper || 2;
     const ider = n => Array.from({ length: n },
       (_, i) => `pl-s-${kl}-${f.id}-${i}`);
+    // Fargene kommer fra ui/signalfarger.js, i KONFIGrekkefølge.
+    // cfg oversetter tegnet posisjon (topp->bunn) til konfigindeks, og
+    // fargelista bygges av den — så tabellen er eneste kilde og kan
+    // ikke komme i utakt med kablingsvisningen.
+    const fargerFra = cfg => cfg.map(i => signalLampeFarge(f.type, i));
     if (kl === "hovedsignal") {
       // 3-lys tegnes grønn-rød-grønn (= konfigindeks 0,1,2);
       // 2-lys tegnes rød-grønn, men konfig har [grønn, rød] -> [1,0]
-      const farger = nLys >= 3
-        ? ["#1fe04e", "#ff2a1e", "#1fe04e"] : ["#ff2a1e", "#1fe04e"];
       const cfg = nLys >= 3 ? [0, 1, 2] : [1, 0];
-      return { navn: vn(f), farger, cfg, ider: ider(farger.length) };
+      return { navn: vn(f), farger: fargerFra(cfg), cfg, ider: ider(cfg.length) };
     }
     if (kl === "forsignal")
       // gul-grønn = konfigindeks 0,1
-      return { navn: vn(f), farger: ["#ffb400", "#1fe04e"],
+      return { navn: vn(f), farger: fargerFra([0, 1]),
                cfg: [0, 1], ider: ider(2) };
     // Høyt skiftesignal: bildene er STREKER, ikke runde linser —
     // 41 loddrett, 42 skrå (se dokumentasjonen) — og de lyser GULT.
     // Konfig har [42-lampa, 41-lampa]; tegnet 41,42 -> [1,0].
     // Ettlys-typen har bare 42-streken.
     if (nLys === 1)
-      return { navn: vn(f), farger: ["#ffb400"], former: ["strek42"],
+      return { navn: vn(f), farger: fargerFra([0]), former: ["strek42"],
                cfg: [0], ider: ider(1) };
     // rekkefølge i kapselen: skrå (42) først, så loddrett (41)
-    return { navn: vn(f), farger: ["#ffb400", "#ffb400"],
+    return { navn: vn(f), farger: fargerFra([0, 1]),
              former: ["strek42", "strek41"],
              cfg: [0, 1], ider: ider(2) };
   };
