@@ -1591,34 +1591,22 @@ function kbRutenett() {
         const tips = her.map(y => y.litra + " " + y.type + " · " + y.sted +
                      (y.av > 1 ? ` (lampe ${y.del + 1} av ${y.av})` : ""))
                      .join("  +  ");
-        // Symbolet sier HVA som skal kobles, fargen på et lampesymbol
-        // hvilken lampe. Litraen står ikke i cellen, men sentrert over
-        // HELE spennet — ellers ser et treskjæret signal ut som ett
-        // navngitt objekt og to navnløse porter.
+        // Tre soner: portnummer, symbol, litra — på HVER celle. Én
+        // etikett strukket over spennet var mer elegant, men da måtte
+        // man lese sidelengs for å finne ut hvem en port hører til.
+        // Litraen på alle cellene svarer på det der man står.
         const farge = (her.length === 1 && !konflikt)
                         ? signalLampeFarge(x0.type, x0.del) : null;
         const sym = konflikt ? "\u2715"
                              : portSymbol(x0.sted, x0.type);
         const symStil = farge ? ` style="color:${farge}"` : "";
-        // Etiketten legges på FØRSTE celle i spennet og strekkes over
-        // resten. Cellene er sammenføyd uten mellomrom, så bredden er
-        // n·44 px pluss (n-1)·3 px mellomrom som ikke lenger finnes.
-        const forst = !spenn || x0.del === 0 || radstart;
-        let merke = "";
-        if (forst) {
-          const igjen = spenn
-            ? Math.min(x0.av - x0.del, KB_KOL - (p % KB_KOL)) : 1;
-          const bredde = igjen * 44 + (igjen - 1) * 3;
-          merke = `<span class="kb-merke" style="width:${bredde}px">` +
-                  `${attr(x0.litra)}</span>`;
-        }
-        h += `<div class="kb-celle ${kls}${forst ? " kb-forst" : ""}"` +
+        h += `<div class="kb-celle ${kls}"` +
              ` title="port ${p}: ${attr(tips)}"` +
              ` onclick="kbGaaTil('${attr(x0.litra)}',` +
              `'${attr(x0.type)}')">` +
              `<span class="kb-nr">${p}</span>` +
              `<span class="kb-sym"${symStil}>${sym}</span>` +
-             merke + `</div>`;
+             `<span class="kb-lit">${attr(x0.litra)}</span></div>`;
       }
       h += `</div>`;
     }
