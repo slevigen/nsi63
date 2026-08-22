@@ -191,6 +191,7 @@ function i2cChanged(sel, prefix) {
   const n = portCount(sel.value);
   const cur = Math.min(parseInt(portSel.value || "0"), n - 1);
   portSel.innerHTML = portOptions(n, cur, sel.value);
+  portMerk();
 }
 function nodeChanged(sel, prefix) {
   // Nytt nodevalg -> vis den nodens faktiske brikker i I2C-listen
@@ -228,7 +229,9 @@ function erInngang(sted) {
 // bindingsholdere som begge bruker stedet «anlegg» — der er det TYPEN
 // som sier hva porten er, ikke stedsnavnet.
 function hovedErInngang(t) {
-  if (t === "inngang") return true;
+  // Samme liste som serverens _er_inngangsbinding og masterens
+  // erInngangsType: disse tre leses via «anlegg», men ER innganger.
+  if (t === "trykknapp" || t === "bryter" || t === "inngang") return true;
   if (t === "utgang") return false;
   return erInngang(roller(t)[0]);
 }
@@ -641,6 +644,78 @@ function halFilter(q) {
 // Er noen bindingsplass på DENNE raden satt? Deaktiverte plasser
 // (panelkolonnen der den ikke gjelder) teller ikke med — de kan
 // uansett ikke bindes.
+// ---- portkollisjoner, LEVENDE mens man redigerer ----
+// Serversiden (_port_konflikter) kjenner reglene og avviser lagring,
+// men da har man alt gjort arbeidet. Her regnes de ut av det som står
+// i feltene NÅ, så en kollisjon vises i det den oppstår.
+//
+// Reglene er serversidens: inngang+inngang er LOVLIG (én knapp kan
+// betjene flere funksjoner); inngang+utgang og utgang+utgang er alltid
+// feil. Et signal opptar «lamper» påfølgende porter fra bindingsporten.
+function radHovedrad(tr) {
+  if (!tr.classList.contains("subrow")) return null;
+  let n = tr.previousElementSibling;
+  while (n && n.classList.contains("subrow")) n = n.previousElementSibling;
+  return n && n.classList.contains("fnrow") ? n : null;
+}
+function portKart() {
+  const kart = new Map();   // "node|i2c|port" -> [{...}]
+  for (const tr of document.querySelectorAll("#tbl tbody tr")) {
+    const fn = tr.classList.contains("fnrow") ? tr : radHovedrad(tr);
+    if (!fn) continue;
+    const type = fn.querySelector(".f-type").value;
+    const st = SIGNALTYPER[type];
+    for (const pre of ["a", "p", "s", "t"]) {
+      const nd = tr.querySelector("." + pre + "-node");
+      if (!nd || nd.disabled || !nd.value) continue;
+      const i2c = tr.querySelector("." + pre + "-i2c").value;
+      const pc = tr.querySelector("." + pre + "-port");
+      const port = parseInt(pc.value) || 0;
+      const sted = pre === "a" ? roller(type)[0]
+                 : pre === "p" ? "panel"
+                 : pre === "s" ? (tr.dataset.sted || "")
+                               : (tr.dataset.sted2 || "");
+      const n = (st && (sted === "anlegg" || sted === "panel"))
+                  ? (st.lamper || 1) : 1;
+      const inn = pre === "a" ? hovedErInngang(type) : erInngang(sted);
+      for (let k = 0; k < n; k++) {
+        const nkl = nd.value + "|" + i2c + "|" + (port + k);
+        if (!kart.has(nkl)) kart.set(nkl, []);
+        kart.get(nkl).push({tr, celle: pc, sted, inn,
+                            litra: fn.querySelector(".f-id").value});
+      }
+    }
+  }
+  return kart;
+}
+function portMerk() {
+  for (const e of document.querySelectorAll("#tbl .portfeil"))
+    e.classList.remove("portfeil");
+  for (const e of document.querySelectorAll("#tbl .radfeil")) e.remove();
+  const feilPaaRad = new Map();
+  for (const [nkl, liste] of portKart()) {
+    if (liste.length < 2 || liste.every(x => x.inn)) continue;
+    const delt = nkl.split("|");
+    for (const x of liste) {
+      if (x.celle) x.celle.classList.add("portfeil");
+      const fn = x.tr.classList.contains("fnrow") ? x.tr : radHovedrad(x.tr);
+      const andre = liste.filter(y => y !== x)
+        .map(y => y.litra + " (" + y.sted + ")").join(", ");
+      if (fn && !feilPaaRad.has(fn))
+        feilPaaRad.set(fn, "port " + delt[2] + " på " + delt[1] +
+                           " deles med " + andre);
+    }
+  }
+  for (const [fn, tekst] of feilPaaRad) {
+    const sum = fn.querySelector(".bindsum");
+    if (!sum) continue;
+    const m = document.createElement("span");
+    m.className = "radfeil";
+    m.textContent = "  \u26a0 " + tekst;
+    sum.appendChild(m);
+  }
+  return feilPaaRad.size;
+}
 function radPorter(tr) {
   let tot = 0, satt = 0;
   for (const sel of tr.querySelectorAll('select[class$="-node"]')) {
@@ -736,6 +811,7 @@ function grpOppdater() {
     if (h) h.querySelector(".grp-tall").textContent = "(" + (tall[i] || 0) + ")";
   });
   tregrener();
+  portMerk();
 }
 // Grenglyfene. «Siste i gruppen» må være siste SYNLIGE — ellers henger
 // grenen i løse luften når et filter skjuler halen av en gruppe.

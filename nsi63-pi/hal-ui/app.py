@@ -1127,7 +1127,10 @@ def _er_inngangsbinding(ftype, sted):
     """Speiler masterens erInngangsBinding: sensor-/stiller-/
     kvitteringsbindinger er innganger, og "anlegg" er inngang for
     inngangstypene (trykknapp/bryter/inngang leses via anlegg)."""
-    return (sted.startswith(("sensor", "stiller")) or sted == "kvittering"
+    # NB «lokal-» med bindestrek: «lokalstillerlampe» er en LAMPE og
+    # skal ikke havne her.
+    return (sted.startswith(("sensor", "stiller", "lokal-"))
+            or sted == "kvittering"
             or (sted == "anlegg" and ftype in ("trykknapp", "bryter",
                                                "inngang")))
 
