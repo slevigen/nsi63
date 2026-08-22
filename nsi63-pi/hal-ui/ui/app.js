@@ -1536,21 +1536,33 @@ function kbRutenett() {
           continue;
         }
         const konflikt = her.length > 1 && her.some(x => !x.inn);
-        // Fortsettelseskanal: lampe 2..n av et signal. Porten er
-        // OPPTATT selv om ingen har bundet noe til akkurat den.
-        const fortsettelse = her.length === 1 && her[0].del > 0;
-        const kls = konflikt ? "kb-c-feil"
-                  : fortsettelse ? "kb-c-reservert"
-                  : her[0].inn ? "kb-c-inn" : "kb-c-ut";
-        const tips = her.map(x => x.litra + " " + x.type + " · " + x.sted +
-                     (x.av > 1 ? ` (lampe ${x.del + 1} av ${x.av})` : ""))
+        // LAMPESPENN: et signal med n lamper eier n påfølgende kanaler.
+        // De tegnes som ÉN sammenhengende flis — mellomrommet lukkes og
+        // de indre kantene fjernes — så spennet leses som det ene
+        // objektet det er, ikke som tre løsrevne bindinger. Litraen
+        // står bare på den første; de øvrige viser kun portnummeret.
+        const x0 = her[0];
+        const spenn = her.length === 1 && x0.av > 1;
+        const radstart = p % 8 === 0;   // grid er 8 bred
+        let kls = konflikt ? "kb-c-feil"
+                : x0.inn ? "kb-c-inn" : "kb-c-ut";
+        if (spenn) {
+          kls += " kb-spenn";
+          // Ved radskift kan flisen ikke henge sammen visuelt — da
+          // starter den på nytt, med runde hjørner igjen.
+          const forts = x0.del > 0 && !radstart;
+          if (forts) kls += " kb-spenn-forts";
+          if (x0.del < x0.av - 1 && (p + 1) % 8 !== 0) kls += " kb-spenn-mer";
+        }
+        const tips = her.map(y => y.litra + " " + y.type + " · " + y.sted +
+                     (y.av > 1 ? ` (lampe ${y.del + 1} av ${y.av})` : ""))
                      .join("  +  ");
+        const vis = (spenn && x0.del > 0 && !radstart) ? "" : x0.litra;
         h += `<div class="kb-celle ${kls}" title="port ${p}: ${attr(tips)}"` +
-             ` onclick="kbGaaTil('${attr(her[0].litra)}',` +
-             `'${attr(her[0].type)}')">` +
+             ` onclick="kbGaaTil('${attr(x0.litra)}',` +
+             `'${attr(x0.type)}')">` +
              `<span class="kb-nr">${p}</span>` +
-             `<span class="kb-lit">${attr(fortsettelse ? "↳" : her[0].litra)}` +
-             `</span></div>`;
+             `<span class="kb-lit">${attr(vis)}</span></div>`;
       }
       h += `</div>`;
     }
@@ -1561,8 +1573,7 @@ function kbRutenett() {
     `<span class="kb-nokkel kb-c-fri"></span> ledig &nbsp; ` +
     `<span class="kb-nokkel kb-c-inn"></span> bundet inngang &nbsp; ` +
     `<span class="kb-nokkel kb-c-ut"></span> bundet utgang &nbsp; ` +
-    `<span class="kb-nokkel kb-c-reservert"></span> reservert lampekanal ` +
-    `(↳ hører til signalet til venstre) &nbsp; ` +
+    `sammenhengende flis = ett signals lampespenn &nbsp; ` +
     `<span class="kb-nokkel kb-c-feil"></span> kollisjon. ` +
     `Hold over for detaljer, klikk for å redigere objektet.</p>`;
 }

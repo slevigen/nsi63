@@ -177,10 +177,16 @@ td.m-ok { background:#16241a; }
 .kb-c-fri .kb-nr { color:#3d4854; }
 .kb-c-inn { background:#16283a; border-color:var(--inn); color:var(--inn); }
 .kb-c-ut  { background:#2e2318; border-color:var(--ut);  color:var(--ut); }
-/* Fortsettelseskanal: opptatt av signalet ved siden av, uten at noen
-   har bundet noe til akkurat denne porten. */
-.kb-c-reservert { background:#23262b; border-style:dashed;
-                  color:var(--dim); }
+/* LAMPESPENN: n påfølgende kanaler eid av ETT signal, tegnet som én
+   sammenhengende flis. «-forts» lukker mellomrommet mot cellen til
+   venstre og fjerner den indre kanten; «-mer» fjerner den høyre. Da
+   står spennet igjen som ett avlangt felt med litraen på begynnelsen,
+   i stedet for tre løsrevne celler som ser ut som egne bindinger.
+   Ved radskift starter flisen på nytt — grid-en kan ikke bøye seg. */
+.kb-spenn-forts { margin-left:-3px; border-left:none;
+                  border-top-left-radius:0; border-bottom-left-radius:0; }
+.kb-spenn-mer { border-top-right-radius:0; border-bottom-right-radius:0; }
+.kb-spenn-forts .kb-nr { opacity:.55; }
 .kb-c-feil { background:#3a1c1c; border-color:var(--warn);
              color:var(--warn); font-weight:700; }
 .kb-nokkel { display:inline-block; width:22px; height:11px;
