@@ -455,8 +455,22 @@ def migrate(data: dict) -> dict:
                 continue
             if f.get("type") == "sporveksel":
                 b["sted"] = "stiller-avvik"
-            elif f.get("type") in ("manuellveksel", "sporsperre"):
+            elif f.get("type") == "manuellveksel":
                 b["sted"] = "lokal-avvik"
+            elif f.get("type") == "sporsperre":
+                b["sted"] = "lokal-avlagt"
+        # Sporsperren har fått sine egne bindingsnavn: normalstillingen
+        # ER pålagt. Master kjenner dem som aliaser, men konfigen skal
+        # si det den er.
+        if f.get("type") == "sporsperre":
+            SPERRENAVN = {"ut-normal": "ut-paalagt",
+                          "ut-avvik": "ut-avlagt",
+                          "sensor-normal": "sensor-paalagt",
+                          "lokal-normal": "lokal-paalagt",
+                          "lokal-avvik": "lokal-avlagt"}
+            for b in f.get("bindinger") or []:
+                if b.get("sted") in SPERRENAVN:
+                    b["sted"] = SPERRENAVN[b["sted"]]
         if f.get("type") == "klokke" and f.get("rolle") == "sporvekselklokke":
             f.pop("rolle")   # rolledelt klokke utgått: én klokke gjør alt
         if "bindinger" not in f:
@@ -2342,8 +2356,9 @@ function roller(t) {
   // Manuellveksel: drivutganger om den skal kunne betjenes med
   // knapp/bryter over noden — ingen sensorer, ingen kontrollamper.
   if (isManuell(t)) return ["ut-normal","ut-avvik"];
-  // Sporsperre: valgfrie drivutganger og ÉN pålagt-kontroll.
-  if (isSperre(t)) return ["ut-normal","ut-avvik","sensor-normal"];
+  // Sporsperre: valgfrie drivutganger og ÉN pålagt-kontroll, med
+  // sperrens egne ord.
+  if (isSperre(t)) return ["ut-paalagt","ut-avlagt","sensor-paalagt"];
   if (t === "sporfelt") return ["sensor"];
   return ["anlegg"];
 }
@@ -2425,16 +2440,16 @@ function bindCells(prefix, b, defI2c) {
 function defaultI2c(sted) {
   if (sted.startsWith("sensor")) return "0x20";
   if (sted.startsWith("stiller")) return "0x20";  // betjening = inngang
+  if (sted.startsWith("lokal-")) return "0x20";   // betjening ute ved
+      // objektet. Bindestreken skiller den fra «lokalstillerlampe»,
+      // som er en LAMPE og skal ha utgangsbrikken.
   if (sted === "kvittering") return "0x20";       // knapp = inngang
   if (sted.startsWith("ut-")) return "0x41";
   return "0x40";
 }
 // sted2/b2: valgfri binding nr. 2 på samme linje, i panelkolonnene
 // (brukes av veksler: kontrollampen på stillingssensorens linje)
-// vis/vis2: egne etiketter der bindingsnavnet ikke er ordet brukeren
-// kjenner — sporsperren heter pålagt/avlagt, men bindingene må hete
-// det master forventer. Utelatt = bindingsnavnet brukes.
-function addSubRow(fnTr, sted, b, removable, sted2, b2, vis, vis2) {
+function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   b = b || {};
   const del = removable
     ? '<button class="row-del" onclick="this.closest(\\'tr\\').remove()">✕</button>'
@@ -2443,8 +2458,7 @@ function addSubRow(fnTr, sted, b, removable, sted2, b2, vis, vis2) {
   tr.className = "subrow";
   tr.dataset.sted = sted;
   if (sted2) tr.dataset.sted2 = sted2;
-  const e1 = vis || sted, e2 = vis2 || sted2;
-  const lbl = sted2 ? `${e1} + ${e2} &rarr;` : `${e1} &rarr;`;
+  const lbl = sted2 ? `${sted} + ${sted2} &rarr;` : `${sted} &rarr;`;
   const hoyre = sted2 ? bindCells("t", b2 || {}, defaultI2c(sted2))
                       : `<td colspan="3"></td>`;
   tr.innerHTML = `
@@ -3021,14 +3035,13 @@ function byggSubrader(tr, t, binds) {
     return;
   }
   if (isSperre(t)) {
-    // Sperrens språk: normalstillingen ER pålagt. Bindingsnavnene er
-    // protokoll mot master og står — bare etikettene er sperrens.
-    addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "lokal-normal", finn("lokal-normal"),
-              "ut-avlagt", "betjening pålagt");
-    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false,
-              "sensor-normal", finn("sensor-normal"),
-              "betjening avlagt", "sensor pålagt");
+    // Sperren har sine EGNE bindingsnavn: normalstillingen er pålagt.
+    // Master kjenner dem som aliaser for de samme stedene, så konfigen
+    // sier det den er i stedet for å bli oversatt i etiketten.
+    addSubRow(tr, "ut-avlagt", finn("ut-avlagt"), false,
+              "lokal-paalagt", finn("lokal-paalagt"));
+    addSubRow(tr, "lokal-avlagt", finn("lokal-avlagt"), false,
+              "sensor-paalagt", finn("sensor-paalagt"));
     return;
   }
   if (isSkift(t)) {   // betjeningsbryter på apparatet
