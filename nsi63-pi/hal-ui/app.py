@@ -2082,7 +2082,11 @@ PAGE = """<!doctype html>
 <title>NSI63 — sikringsanlegg</title>
 <style>
   :root { --bg:#14171c; --panel:#1d232b; --line:#2e3742; --fg:#e8e6e3;
-          --dim:#98a2ae; --acc:#e0a437; --ok:#5bb974; --warn:#e06c5b; }
+          --dim:#98a2ae; --acc:#e0a437; --ok:#5bb974; --warn:#e06c5b;
+          /* Retning på en binding: inn til master fra anlegget, eller
+             ut fra master til anlegget. Blått = inngang (PCF8574),
+             oransje = utgang (PCA9685). */
+          --inn:#5aa9e6; --ut:#d98c4a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 system-ui, sans-serif; }
@@ -2127,6 +2131,15 @@ PAGE = """<!doctype html>
   .grphead b { color:var(--acc); }
   .grp-pil { display:inline-block; width:14px; color:var(--acc); }
   .sub-label { color:var(--dim); font-size:12px; text-align:right; }
+  /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
+     bryter) og hvor en UTGANG (lampe, motor). Fargen ligger på
+     I2C-cellen, som er der brikketypen faktisk velges. */
+  .retn-inn { color:var(--inn); }
+  .retn-ut  { color:var(--ut); }
+  td.i2c.retn-inn select { border-color:var(--inn); }
+  td.i2c.retn-ut  select { border-color:var(--ut); }
+  .forklaring { font-size:11.5px; color:var(--dim); margin:0 0 6px; }
+  .forklaring b { font-weight:600; }
   button { background:var(--panel); color:var(--fg); border:1px solid var(--line);
            border-radius:4px; padding:8px 14px; font:inherit; cursor:pointer; }
   button:hover { border-color:var(--acc); }
@@ -2184,6 +2197,14 @@ PAGE = """<!doctype html>
            placeholder="filtrer: litra, type eller node…"
            oninput="halFilter(this.value)">
   </div>
+  <p class="forklaring">
+    Retningen på hver binding er merket:
+    <span class="retn-inn">&larr; <b>inngang</b></span> — sensor, knapp
+    eller bryter som anlegget melder til master (PCF8574, 0x20&ndash;0x23).
+    <span class="retn-ut"><b>utgang</b> &rarr;</span> — lampe eller motor
+    master driver (PCA9685, 0x40&ndash;0x43).
+    I2C-feltet har samme farge som retningen slotten forventer.
+  </p>
   <table id="tbl">
     <thead>
       <tr>
@@ -2429,26 +2450,41 @@ function nodeChanged(sel, prefix) {
   if (!i2cSel.value) i2cSel.selectedIndex = 0;
   i2cChanged(i2cSel, prefix);
 }
-function bindCells(prefix, b, defI2c) {
+// sted: hva slotten er FOR — brukes bare til fargemerking, så det
+// synes hvor det skal velges en inngang og hvor en utgang.
+function bindCells(prefix, b, defI2c, sted) {
   // Alle bindinger starter på "—" (ingen) — bare bevisste valg lagres
   const i2cVal = b.i2c || defI2c;
+  const kls = sted ? (erInngang(sted) ? " retn-inn" : " retn-ut") : "";
   return `
     <td><select class="${prefix}-node" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
-    <td><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
+    <td class="i2c${kls}"><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
     <td class="port"><select class="${prefix}-port">${portOptions(portCount(i2cVal), b.port??0, i2cVal)}</select></td>`;
 }
+// Er dette bindingsstedet en INNGANG (noe anlegget forteller master)
+// eller en UTGANG (noe master driver)? Én kilde til sannhet for både
+// brikkeforslaget og fargemerkingen i tabellen — de kan ikke komme i
+// utakt. NB: «lokal-» er betjening (inngang), mens
+// «lokalstillerlampe» er en LAMPE; bindestreken skiller dem.
+function erInngang(sted) {
+  return sted.startsWith("sensor") || sted.startsWith("stiller") ||
+         sted.startsWith("lokal-") || sted === "kvittering";
+}
 function defaultI2c(sted) {
-  if (sted.startsWith("sensor")) return "0x20";
-  if (sted.startsWith("stiller")) return "0x20";  // betjening = inngang
-  if (sted.startsWith("lokal-")) return "0x20";   // betjening ute ved
-      // objektet. Bindestreken skiller den fra «lokalstillerlampe»,
-      // som er en LAMPE og skal ha utgangsbrikken.
-  if (sted === "kvittering") return "0x20";       // knapp = inngang
-  if (sted.startsWith("ut-")) return "0x41";
-  return "0x40";
+  if (erInngang(sted)) return "0x20";   // PCF8574
+  if (sted.startsWith("ut-")) return "0x41";   // PCA9685, drivutgang
+  return "0x40";                                // PCA9685, lamper
 }
 // sted2/b2: valgfri binding nr. 2 på samme linje, i panelkolonnene
 // (brukes av veksler: kontrollampen på stillingssensorens linje)
+// Pilen peker den veien signalet går: inn til master fra anlegget,
+// eller ut fra master til anlegget. Fargen gjentar det, så det leses
+// på et blikk uten å måtte kunne navnene.
+function merk(sted) {
+  return erInngang(sted)
+    ? `<span class="retn-inn">&larr; ${sted}</span>`
+    : `<span class="retn-ut">${sted} &rarr;</span>`;
+}
 function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   b = b || {};
   const del = removable
@@ -2458,12 +2494,13 @@ function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   tr.className = "subrow";
   tr.dataset.sted = sted;
   if (sted2) tr.dataset.sted2 = sted2;
-  const lbl = sted2 ? `${sted} + ${sted2} &rarr;` : `${sted} &rarr;`;
-  const hoyre = sted2 ? bindCells("t", b2 || {}, defaultI2c(sted2))
-                      : `<td colspan="3"></td>`;
+  const lbl = sted2 ? `${merk(sted)} + ${merk(sted2)}` : merk(sted);
+  const hoyre = sted2
+    ? bindCells("t", b2 || {}, defaultI2c(sted2), sted2)
+    : `<td colspan="3"></td>`;
   tr.innerHTML = `
     <td colspan="3" class="sub-label">${lbl}</td>
-    ${bindCells("s", b, defaultI2c(sted))}
+    ${bindCells("s", b, defaultI2c(sted), sted)}
     ${hoyre}
     <td>${del}</td>`;
   let after = fnTr;
@@ -2739,8 +2776,8 @@ function addRow(f, foerEl) {
            : [t].concat(GRUPPER[gruppeIdx(t)].typer))
           .map(x=>opt(x,x,t)).join("")}</select></td>
     <td class="hint f-extra"></td>
-    ${bindCells("a", main, defaultI2c(r[0]))}
-    ${bindCells("p", panel, "0x40")}
+    ${bindCells("a", main, defaultI2c(r[0]), r[0])}
+    ${bindCells("p", panel, "0x40", "panel")}
     <td><input class="f-notes" value="${attr(f.notes)}"></td>
     <td><button class="row-del" onclick="delFn(this)">✕</button></td>`;
   const tb = document.querySelector("#tbl tbody");
