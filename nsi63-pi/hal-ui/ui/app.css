@@ -37,13 +37,6 @@
   .subrow td { border-top:none; background:#181d24; }
   .grphead td { background:#10141a; border-top:2px solid #2a3140;
                 padding:10px 8px 6px; }
-  /* Kablingstreet: bevisst IKKE en tabell. Portene er en fysisk,
-     ordnet liste, og trestrukturen viser hierarkiet node → brikke →
-     port direkte. Fast bredde holder portnumrene i kolonne. */
-  .kabtre { margin:0; font-family:ui-monospace, Menlo, monospace;
-            font-size:12.5px; line-height:1.65; overflow-x:auto;
-            white-space:pre; color:var(--fg); }
-  .kabtre b { color:var(--acc); font-size:13px; }
   .kb-dim { color:var(--dim); }
   .kb-brikke { color:var(--fg); }
   .kb-ledig { color:#4a5461; }
@@ -161,7 +154,12 @@ td.m-ok { background:#16241a; }
    Samme data som treet, men med brikkens FORM: 16 kanaler i to rader
    for en PCA9685, 8 for en PCF8574. Hvor hullene ligger ses da med ett
    blikk. Fargene er de samme som retningsmerkingen ellers i UI-et. */
-.kb-node { margin:0 0 18px; overflow-x:auto; }
+/* Fast bredde, som kablingstreet hadde: portnumrene får samme bredde
+   uansett siffer, så kolonnene står rett opp og ned gjennom hele
+   brikken. Litraene blir samtidig jevnere å sammenlikne bortover. */
+.kb-node { margin:0 0 18px; overflow-x:auto;
+           font-family:ui-monospace, Menlo, monospace; }
+.kb-node b { font-family:inherit; }
 .kb-brikkerad { margin:8px 0 3px; font-size:12.5px; }
 /* 16 brede: en PCA9685 får alle kanalene på én linje, og brikkens
    bredde blir dens kapasitet — en PCF8574 er synlig halvparten så

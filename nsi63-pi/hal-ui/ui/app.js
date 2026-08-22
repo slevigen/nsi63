@@ -1408,88 +1408,11 @@ function kbBrikkeNavn(a) {
   return a.startsWith("0x4") ? a + " PCA9685 · 16 utganger"
                              : a + " PCF8574 · 8 innganger";
 }
-function kbRender() {
-  const rutenett = (document.querySelector('input[name="kb-vis"]:checked')
-                    || {}).value === "rutenett";
-  document.getElementById("kb-tre").style.display = rutenett ? "none" : "";
-  document.getElementById("kb-rutenett").style.display = rutenett ? "" : "none";
-  if (rutenett) return kbRutenett();
-  const visAlle = document.getElementById("kb-alle").checked;
-  const st = KBSIGT;
-  const {kart, ordrer} = kbKart(st);
-  const navn = Object.keys(KBNODER);
-  // Noder uten kallenavn, men med bindinger, skal likevel vises
-  for (const nd of Object.keys(kart)) if (!navn.includes(nd)) navn.push(nd);
-  if (!navn.length) {
-    document.getElementById("kb-tre").textContent =
-      "Ingen noder definert ennå — gi nodene kallenavn på System-siden.";
-    return;
-  }
-  let ut = "";
-  for (const nd of navn) {
-    const mac = (KBNODER[nd] || {}).mac || "ukjent MAC";
-    const brukt = ordrer[nd] || 0;
-    ut += `<b>${attr(nd)}</b> <span class="kb-dim">· ${attr(mac)} · ` +
-          `${brukt} av 40 ordrepunkter</span>\n`;
-    // Hvilke brikker skal vises? Det noden FANT ved skanning, pluss
-    // det som faktisk er bundet (en binding til en brikke noden ikke
-    // har, skal ikke skjules — den er nettopp feilen man vil se), og
-    // GPIO, som alltid finnes på noden og ikke skannes.
-    const skann = KBSKANN[mac.toLowerCase()];
-    const funnet = skann ? skann.i2c : null;
-    const brikker = KB_BRIKKER.filter(a => visAlle ||
-      (kart[nd] && kart[nd][a]) || a === "gpio" ||
-      (funnet && funnet.includes(a)));
-    ut += `   <span class="kb-dim">` + (
-      funnet
-        ? `noden meldte ${funnet.length ? funnet.join(", ") : "ingen I2C-brikker"}` +
-          (skann.online ? "" : " (sist sett — noden er offline nå)")
-        : `noden har ikke meldt seg — viser bare det som er bundet`) +
-      `</span>\n`;
-    brikker.forEach((a, bi) => {
-      const sist = bi === brikker.length - 1;
-      const gren = sist ? "└─" : "├─";
-      const strek = sist ? "  " : "│ ";
-      const porter = (kart[nd] || {})[a] || {};
-      const ant = Object.keys(porter).length;
-      ut += `${gren} <span class="kb-brikke">${kbBrikkeNavn(a)}</span>` +
-            (ant ? `<span class="kb-dim"> · ${ant} i bruk</span>` : "") +
-            `\n`;
-      const kap = a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
-      for (let p = 0; p < kap; p++) {
-        const her = porter[p];
-        const nr = String(p).padStart(2, " ");
-        if (!her) {
-          if (visAlle || ant)
-            ut += `${strek}  ${nr} <span class="kb-ledig">○  ledig</span>\n`;
-          continue;
-        }
-        // Konflikt: to bindinger på samme port der minst én er utgang
-        const konflikt = her.length > 1 && her.some(x => !x.inn);
-        const tekst = her.map(x => {
-          const spenn = x.av > 1 ? ` (lampe ${x.del + 1} av ${x.av})` : "";
-          return `<a class="kb-obj" onclick="kbGaaTil('${attr(x.litra)}',` +
-                 `'${attr(x.type)}')">${attr(x.litra)}</a> ` +
-                 `<span class="kb-dim">${attr(x.type)} · ${attr(x.sted)}` +
-                 `${spenn}</span>`;
-        }).join("  +  ");
-        const kule = konflikt ? `<span class="kb-konflikt">✕</span>`
-                    : her[0].inn ? `<span class="retn-inn">●</span>`
-                                 : `<span class="retn-ut">●</span>`;
-        ut += `${strek}  ${nr} ${kule}  ${tekst}` +
-              (konflikt ? ` <span class="kb-konflikt">← KOLLISJON</span>` : "") +
-              `\n`;
-      }
-    });
-    ut += "\n";
-  }
-  document.getElementById("kb-tre").innerHTML = ut;
-}
-// ---- samme data, som RUTENETT ----
-// Treet leses linje for linje; rutenettet gir formen på brikken:
-// 16 kanaler i to rader for en PCA9685, 8 for en PCF8574. Hvor mye
-// som er ledig, og hvor hullene ligger, ses da med ett blikk i stedet
-// for ved å telle linjer.
+// ---- kablingsvisningen ----
+// Rutenettet gir brikkens FORM: 16 kanaler på én linje for en
+// PCA9685, 8 for en PCF8574. Hvor mye som er ledig, og hvor hullene
+// ligger, ses da med ett blikk. En trevisning fantes en stund ved
+// siden av, men rutenettet vant på begge deler.
 // Rutenettet er 16 bredt — en PCA9685 får alle kanalene på ÉN linje,
 // og brikkens bredde blir dermed dens kapasitet: en PCF8574 er synlig
 // halvparten så bred, GPIO enda smalere. Ingen brikke kan da wrappe,
@@ -1523,7 +1446,7 @@ function portSymbol(sted, type) {
 function kbBrikkeKap(a) {
   return a === "gpio" ? 6 : (a.startsWith("0x4") ? 16 : 8);
 }
-function kbRutenett() {
+function kbRender() {
   const visAlle = document.getElementById("kb-alle").checked;
   const {kart, ordrer} = kbKart(KBSIGT);
   const navn = Object.keys(KBNODER);
