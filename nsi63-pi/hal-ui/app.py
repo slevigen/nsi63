@@ -2267,10 +2267,14 @@ PAGE = """<!doctype html>
 <header>
   <h1 id="tittel">NSI63<small>sikringsanlegg</small></h1>
   <nav>
-    <button class="tab active" onclick="showView('noder', this)">System</button>
-    <button class="tab" onclick="showView('hal', this)">Objekter</button>
-    <button class="tab" onclick="showView('kabling', this)">Kabling</button>
-    <button class="tab" onclick="showView('forrigling', this)">Forrigling</button>
+    <button class="tab active" data-view="noder"
+            onclick="gaaTilFane('noder')">System</button>
+    <button class="tab" data-view="hal"
+            onclick="gaaTilFane('hal')">Objekter</button>
+    <button class="tab" data-view="kabling"
+            onclick="gaaTilFane('kabling')">Kabling</button>
+    <button class="tab" data-view="forrigling"
+            onclick="gaaTilFane('forrigling')">Forrigling</button>
   </nav>
   <div id="status">laster…</div>
 <div id="lpbanner" style="display:none;background:#7a5210;color:#ffe9c4;
@@ -3805,9 +3809,8 @@ function kbRender() {
 }
 // Hopp til objektet på Objekter-siden, utfoldet
 function kbGaaTil(litra, type) {
-  const knapp = [...document.querySelectorAll(".tab")]
-    .find(b => b.textContent.trim() === "Objekter");
-  showView("hal", knapp);
+  gaaTilFane("hal");
+  showView("hal");   // hashchange rekker ikke før vi leter etter raden
   for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     if (tr.querySelector(".f-id").value !== litra) continue;
     if (tr.querySelector(".f-type").value !== type) continue;
@@ -3821,17 +3824,31 @@ function kbGaaTil(litra, type) {
     return;
   }
 }
+// Fanen ligger i URL-hashen. Da virker nettleserens fram/tilbake av
+// seg selv, en reload lander på samme fane, og en fane kan bokmerkes
+// eller deles som lenke. hashchange er ÉN inngang: både klikk og
+// historikknavigasjon går gjennom den, så de ikke kan komme i utakt.
+const FANER = ["noder", "hal", "kabling", "forrigling"];
+function gaaTilFane(v) {
+  if (location.hash.slice(1) === v) return;   // ingen ny historikkpost
+  location.hash = v;
+}
+function faneFraHash() {
+  const v = decodeURIComponent(location.hash || "").slice(1);
+  return FANER.includes(v) ? v : "noder";
+}
 function showView(v, btn) {
   currentView = v;
-  for (const name of ["hal", "forrigling", "noder", "kabling"])
+  for (const name of FANER)
     document.getElementById("view-" + name).style.display =
       v === name ? "" : "none";
-  document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
-  btn.classList.add("active");
+  document.querySelectorAll(".tab").forEach(b =>
+    b.classList.toggle("active", b.dataset.view === v));
   if (v === "noder") renderNoder();
   if (v === "forrigling") frLoad();
   if (v === "kabling") kbLoad();
 }
+window.addEventListener("hashchange", () => showView(faneFraHash()));
 // litra-etikett per (mac, i2c-adresse, port) fra HAL-tabellen
 // GPIO-porter bundet som INNGANG på en gitt node — speiler masterens
 // erInngangsBinding: sensor*/stiller*/kvittering, PLUSS "anlegg" på
@@ -5151,7 +5168,7 @@ async function klokkeSjekk() {
 }
 
 loadAll();
-renderNoder();   // System-fanen er synlig fra start
+showView(faneFraHash());   // reload/bokmerke lander på riktig fane
 klokkeSjekk();
 setInterval(klokkeSjekk, 300000);
 setInterval(async () => {
