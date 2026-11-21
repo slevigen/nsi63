@@ -3,7 +3,11 @@
           /* Retning på en binding: inn til master fra anlegget, eller
              ut fra master til anlegget. Blått = inngang (PCF8574),
              oransje = utgang (PCA9685). */
-          --inn:#5aa9e6; --ut:#d98c4a; }
+          --inn:#5aa9e6; --ut:#d98c4a;
+          /* Kanten rundt et objekt på Objekter-siden og rundt cellene
+             på Kabling-siden. Lysere enn --line, som er til
+             skillelinjer: en ramme skal SES, ikke bare anes. */
+          --ramme:#3c4653; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 system-ui, sans-serif; }
@@ -28,13 +32,11 @@
                   padding:5px 7px; font:inherit; }
   input:focus, select:focus { outline:1px solid var(--acc); }
   select:disabled, input:disabled { opacity:.25; }
-  td.port select { width:70px; }
   .hint { color:var(--dim); font-size:11px; }
   /* tegnefelter: gjelder KUN sporplan-tegningen, skjult til de
      klikkes fram — ikke alle vil ha et digitalt panel */
   .tegnvis { color:var(--dim); font-size:11px; cursor:pointer;
              text-decoration:underline dotted; user-select:none; }
-  .subrow td { border-top:none; background:#181d24; }
   .grphead td { background:#10141a; border-top:2px solid #2a3140;
                 padding:10px 8px 6px; }
   .kb-dim { color:var(--dim); }
@@ -53,46 +55,142 @@
   .sk-mf { color:#4dd0c4; }   /* varselfelt */
   .sk-vx { color:#ffa657; }   /* veksel */
   .grphead b { color:var(--acc); }
-  /* Kolonnetekst per gruppe: hva «Binding» og «Panel» ER her. Samme
-     retningsfarger som radene under, så det leses som ett system. */
+  /* Kolonnetekst per gruppe: hva de to portkolonnene ER her — normal
+     og avvik for veksler, pålagt og avlagt for sperrer. Står midt over
+     kolonnetrioen den gjelder. */
   .grpkol { font-size:11px; font-weight:400; text-transform:none;
-            letter-spacing:0; opacity:.85; }
-  /* Kolonnen er deaktivert for denne gruppen — ingen pil, ingen
-     farge, så teksten ikke inviterer til et valg som ikke finnes. */
-  .grpkol.dim { color:var(--dim); opacity:.55; }
-  /* Sammenlagt objektrad: portene erstattes av ett sammendrag, så
-     linjen sier hva objektet ER i stedet for å vise ni tomme felter. */
+            letter-spacing:0; opacity:.85; text-align:center;
+            color:var(--dim); }
   /* Pila og litra på SAMME linje: input arver width:100% fra regelen
      over og ville ellers brutt til neste linje og gjort raden høyere. */
   td.litra { white-space:nowrap; }
-  td.litra .f-id { width:calc(100% - 15px); }
+  td.litra .f-id { width:calc(100% - 16px); min-width:0; }
   .rad-pil { display:inline-block; width:13px; cursor:pointer;
              color:var(--dim); user-select:none; vertical-align:middle;
              font-size:11px; }
   .rad-pil:hover { color:var(--acc); }
-  .xsum { display:block; white-space:nowrap; overflow:hidden;
-          text-overflow:ellipsis; font-size:11.5px; }
-  .bindsum { color:var(--dim); font-size:11.5px; cursor:pointer; }
+  /* Sammendraget på identitetslinjen: egenskapene og porttallet i
+     SAMME celle. De hører sammen — begge sier hva objektet er nå — og
+     slått sammen slipper Egenskaper å være en egen kolonne som skjøv
+     bindingslinjenes etikett langt vekk fra portene sine. */
+  .bindsum { color:var(--dim); font-size:11.5px; cursor:pointer;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .bindsum:hover { color:var(--fg); }
-  .bindsum.harbind { color:var(--ok); }
+  .xsum:not(:empty)::after { content:" \00b7 "; color:#4a5461; }
+  .portsum.harbind { color:var(--ok); }
   .grp-pil { display:inline-block; width:14px; color:var(--acc); }
-  /* ---- Objekttabellen som TRE ----
-     Rutenettet kom av border på hver celle. Uten det, og med
-     grenglyfer i første kolonne, leses den som kablingstreet: node
-     → objekt → binding. <table> beholdes som mekanikk, fordi
-     kolonnene MÅ flukte når en rad er utfoldet — og fordi collect()
-     leser radene der lagringen skjer. Utseendet er skinn, ikke
-     ombygging av lagringsveien. */
+  /* ---- Hvert objekt som ÉN ramme ----
+     Samme form som cellene på Kabling-siden: 1 px kant, 4 px radius,
+     egen bunn. Rammen omslutter identitetslinjen og alle linjene
+     under, så det er synlig hvor et objekt slutter og det neste
+     begynner — den jobben gjorde grenglyfene før, dårligere og på
+     bekostning av 15 px i førstekolonnen.
+     border-collapse må være «separate» for at radius skal virke i det
+     hele tatt; avstanden er null, så to objekter møtes i en 2 px strek
+     og trenger ingen egen skillelinje.
+     <table> beholdes som mekanikk, fordi kolonnene MÅ flukte når et
+     objekt er foldet ut — og fordi collect() leser radene der
+     lagringen skjer. Utseendet er skinn, ikke ombygging av
+     lagringsveien. */
+  #tbl { background:transparent; border-collapse:separate;
+         border-spacing:0; }
   #tbl td, #tbl th { border:none; padding:3px 8px; }
-  #tbl { background:transparent; }
+  /* 2 px luft mellom portcellene — samme tettpakkede rutenett som
+     Kabling-siden, der cellene ligger med gap:3px. Nedtrekkene fyller
+     cellen, så cellepaddingen ER mellomrommet: 1 px på hver side av
+     skillet gir 2 px. Bindingslinjene får samme tetthet vertikalt, så
+     rutenettet blir jevnt begge veier. */
+  #tbl td.pc { padding:1px; }
+  #tbl tr.subrow > td { padding-top:1px; padding-bottom:1px; }
   #tbl thead th { color:#5b6572; font-size:10px; padding-bottom:6px; }
-  #tbl tr.fnrow:hover > td { background:#1b2129; }
-  #tbl tr.grphead td { background:transparent;
-                       border-top:1px solid var(--line); }
-  .tregren { color:#3d4854; font-family:ui-monospace, Menlo, monospace;
-             font-size:12px; user-select:none; white-space:pre; }
-  .sub-label { color:var(--dim); font-size:12px; text-align:left; }
-  .sub-label .tregren { margin-right:2px; }
+  #tbl tr.fnrow > td, #tbl tr.subrow > td {
+    background:#171c22;
+    border-left:1px solid var(--ramme); border-right:1px solid var(--ramme);
+  }
+  /* Bare YTTERkantene tegnes: hver celle får venstre og høyre kant,
+     men bare den første og siste cellen i raden slipper sin gjennom. */
+  #tbl tr.fnrow > td:not(:first-child),
+  #tbl tr.subrow > td:not(:first-child) { border-left:none; }
+  #tbl tr.fnrow > td:not(:last-child),
+  #tbl tr.subrow > td:not(:last-child) { border-right:none; }
+  /* Identitetslinjen er litt lysere enn linjene under — den er
+     objektets overskrift, ikke en av dets porter. */
+  #tbl tr.fnrow > td { background:#232b35; padding-top:6px;
+                       border-top:1px solid var(--ramme); }
+  #tbl tr.fnrow:hover > td { background:#2b3542; }
+  #tbl tr.fnrow > td:first-child { border-top-left-radius:4px; }
+  #tbl tr.fnrow > td:last-child { border-top-right-radius:4px; }
+  #tbl tr.obj-sist > td { border-bottom:1px solid var(--ramme);
+                          padding-bottom:5px; }
+  #tbl tr.obj-sist > td:first-child { border-bottom-left-radius:4px; }
+  #tbl tr.obj-sist > td:last-child { border-bottom-right-radius:4px; }
+  #tbl tr.grphead td { background:transparent; padding-top:8px; }
+  /* Luften mellom to objekter. En tom rad, fordi et <tr> ikke kan ha
+     margin og border-spacing ville lagt like mye luft mellom linjene
+     INNE i et objekt — og dermed revet rammen fra hverandre. */
+  #tbl tr.objluft > td { padding:0; height:6px;
+                         background:transparent; border:none; }
+  /* Bindingslinjen: symbol (samme tegn som Kabling-siden), funksjonens
+     navn, og — der de to halvdelene ikke er gruppens normal/avvik —
+     hva de to kolonnene er. Symbolet i monospace, så tegnene står i
+     kolonne nedover uansett hvor mange det er på linjen. */
+  .sub-label { color:var(--dim); font-size:12px; text-align:left;
+               white-space:nowrap; padding-left:22px; }
+  .bsym { font-family:ui-monospace, Menlo, monospace; font-size:13px;
+          display:inline-block; min-width:14px; text-align:center; }
+  .bnavn { color:var(--fg); margin-left:5px; }
+  .bpar { color:#5b6572; font-size:11px; margin-left:7px; }
+  /* ALLE kolonnene får fast bredde, satt i tabellhodet. To grunner:
+     nedtrekkene skal ikke være bredere enn innholdet krever, og
+     bindingslinjene er SKJULT når et objekt er sammenlagt — skjulte
+     rader teller ikke i tabellens breddeberegning, så uten faste
+     bredder flyttet kolonnene på seg hver gang noe ble foldet ut.
+     Breddene er målt mot det bredeste innholdet: nodekallenavn,
+     «0x40 PCA», «5 (G39)». Blir vinduet smalere, ruller tabellen
+     sideveis i stedet for å klemme feltene sammen — derfor min-width.
+     Nodekolonnen er den dyreste: kallenavnene er brukerens egne, og
+     et avkortet «STILLERAPPA…» ville gjort nedtrekket ubrukelig. */
+  /* table-layout:fixed er poenget: da er det tabellHODET som bestemmer
+     kolonnene, ikke innholdet i radene. Uten det behandler nettleseren
+     breddene som forslag og fordeler slakken selv — I2C-kolonnen ble
+     halvannen gang bredere enn «0x40 PCA» trenger. */
+  /* width:max-content: alle kolonnene er faste, så tabellen har ingen
+     kolonne å legge slakken i og skal ikke strekkes ut over dem. */
+  #tbl { table-layout:fixed; width:max-content; }
+  /* Litra + Type er samtidig bredden på etikettcellen foran hver
+     bindingslinje — «◎ ○ sporfeltsensor  sensor · lampe» skal få plass
+     der. Var det en Egenskaper-kolonne til, spente etiketten over den
+     også, og det ble et langt tomrom før første nedtrekk. */
+  #tbl col.c-litra { width:96px; }
+  /* 160 px: bredest er «manuellveksel» blant typenavnene og
+     «vekselfelt» blant sporfeltrollene — begge under 110 px pluss
+     nedtrekkspil. */
+  #tbl col.c-type  { width:160px; }
+  #tbl col.c-node  { width:174px; }
+  #tbl col.c-i2c   { width:112px; }
+  #tbl col.c-port  { width:92px; }
+  #tbl col.c-slett { width:50px; }
+  #tbl td.pc { white-space:nowrap; }
+  #tbl td.pc select { width:100%; min-width:0; padding:4px 6px; }
+  #tbl td .f-type { min-width:0; }
+  /* Sentralstilt-avkryssingen står i stedet for typenedtrekket på
+     vekslene. Nedtrekket er skjult, men fortsatt verdibæreren. */
+  .sentralvalg { display:inline-flex; align-items:center; gap:4px;
+                 font-size:12px; color:var(--dim); cursor:pointer;
+                 white-space:nowrap; }
+  .sentralvalg input { margin:0; }
+  /* Egenskapslinjen: samme form som en bindingslinje, men innholdet
+     får hele bredden. Alt som kan redigeres ligger på en linje UNDER
+     identiteten — det er derfor identitetslinjen kan stå urørt når
+     objektet foldes ut. */
+  #tbl td.attrcell { color:var(--dim); font-size:11.5px;
+                     padding:2px 8px 3px 8px; line-height:1.9; }
+  #tbl td.attrcell select, #tbl td.attrcell input[type=text],
+  #tbl td.attrcell input:not([type]) { width:auto; }
+  .attrrow .bnavn { color:var(--dim); margin-right:10px; }
+  /* Der egenskapene før brøt til ny linje står nå bare et mellomrom:
+     alt ligger på én linje, og går det ikke inn, brytes cellen selv. */
+  .axsep { display:inline-block; width:16px; }
   /* Retningsmerking: hvor det skal velges en INNGANG (sensor, knapp,
      bryter) og hvor en UTGANG (lampe, motor). Fargen ligger på
      I2C-cellen, som er der brikketypen faktisk velges. */
@@ -123,6 +221,19 @@
   .card h2 .off { color:var(--warn); font-size:13px; }
   .card h2 .on { color:var(--ok); font-size:13px; }
   .chips { display:flex; flex-wrap:wrap; gap:16px; margin-top:10px; }
+  /* Tidslåsene: navn og forklaring til venstre, forbildets verdi i
+     midten, feltet til høyre. Forbildekolonnen står der nettopp for å
+     kunne sammenliknes med det man selv har satt. */
+  table.tider { width:100%; border-collapse:collapse; margin:8px 0 4px; }
+  table.tider th { text-align:left; padding:4px 10px 4px 0;
+                   border-bottom:1px solid var(--line); }
+  table.tider td { padding:8px 10px 8px 0; vertical-align:top;
+                   border-bottom:1px solid var(--line); }
+  table.tider td .hint { margin-top:2px; }
+  table.tider tr:last-child td { border-bottom:none; }
+  .tid-forbilde { color:var(--acc); white-space:nowrap; width:1%; }
+  .tid-verdi { width:1%; white-space:nowrap; }
+  .tid-verdi input { width:72px; }
   .chip table { width:auto; }
   .chip caption { color:var(--acc); font-size:12px; text-align:left;
                   padding:2px 0 6px; letter-spacing:.06em; }
@@ -137,8 +248,8 @@ td.pc.portfeil select { border-color:var(--warn); color:var(--warn); }
 .radfeil { color:var(--warn); font-weight:600; }
 
 /* Fiendtlighetsmatrisen. Utledet av togveitabellen med masterens egen
-   regel — den skal leses som et rutenett, så her er tabellrammene
-   riktige (i motsetning til objektlisten, som er et tre). */
+   regel — den skal leses som et rutenett, så her er rammen på HVER
+   celle riktig, ikke én ramme per objekt slik objektlisten har. */
 table.matrise { width:auto; border-collapse:collapse;
                 font-family:ui-monospace, Menlo, monospace;
                 font-size:12px; }
@@ -151,12 +262,13 @@ td.m-selv { color:#3d4854; }
 td.m-ok { background:#16241a; }
 
 /* ---- kablingens rutenettvisning ----
-   Samme data som treet, men med brikkens FORM: 16 kanaler i to rader
-   for en PCA9685, 8 for en PCF8574. Hvor hullene ligger ses da med ett
-   blikk. Fargene er de samme som retningsmerkingen ellers i UI-et. */
-/* Fast bredde, som kablingstreet hadde: portnumrene får samme bredde
-   uansett siffer, så kolonnene står rett opp og ned gjennom hele
-   brikken. Litraene blir samtidig jevnere å sammenlikne bortover. */
+   Samme bindinger som Objekter-siden, men med brikkens FORM: 16
+   kanaler for en PCA9685, 8 for en PCF8574. Hvor hullene ligger ses da
+   med ett blikk. Fargene er de samme som retningsmerkingen ellers i
+   UI-et, og rammen er den samme som rundt et objekt (--ramme). */
+/* Fast bredde: portnumrene får samme bredde uansett siffer, så
+   kolonnene står rett opp og ned gjennom hele brikken. Litraene blir
+   samtidig jevnere å sammenlikne bortover. */
 .kb-node { margin:0 0 18px; overflow-x:auto;
            font-family:ui-monospace, Menlo, monospace; }
 .kb-node b { font-family:inherit; }
@@ -177,7 +289,7 @@ td.m-ok { background:#16241a; }
    nederst. Uten nok høyde legger etiketten seg oppå symbolet.
    padding-bottom holder flyten unna sonen etiketten ligger i. */
 .kb-celle { position:relative; height:48px; border-radius:4px;
-            border:1px solid var(--line); font-size:11px;
+            border:1px solid var(--ramme); font-size:11px;
             display:flex; flex-direction:column; justify-content:flex-start;
             align-items:center; line-height:1.15; overflow:hidden;
             padding:3px 2px 3px; }
@@ -213,9 +325,22 @@ td.m-ok { background:#16241a; }
 .kb-spenn-forts .kb-nr { opacity:.55; }
 .kb-c-feil { background:#3a1c1c; border-color:var(--warn);
              color:var(--warn); font-weight:700; }
+/* Levende inngangsverdi: en liten prikk i hjørnet av porter som
+   LESES. Tom = noden har ikke meldt; ring = hviler; fylt = aktiv.
+   Sensorene er aktiv lav, så «fylt» betyr at noe trekker porten ned —
+   sporfeltet belagt, knappen trykket, tunga i kontroll. */
+.kb-inn { position:absolute; top:3px; right:3px; width:7px; height:7px;
+          border-radius:50%; border:1px solid currentColor; opacity:.25;
+          pointer-events:none; }
+.kb-inn.kjent { opacity:.6; }
+.kb-inn.pa { background:currentColor; opacity:1; }
 .kb-nokkel { display:inline-block; width:22px; height:11px;
              border-radius:3px; vertical-align:-1px;
              border:1px solid var(--line); }
+/* Samme prikk i symbolforklaringen som i cellen — den må kunne
+   kjennes igjen. Bare posisjoneringen er en annen. */
+.kb-innnok { position:static; margin-right:2px; vertical-align:0;
+             color:var(--inn); }
 
 /* Litraen nederst i cellen. align-self:stretch og min-width:0, IKKE
    max-width: et flex-element har min-width:auto og flyter over

@@ -43,6 +43,13 @@
     <button class="mini" onclick="radAlle(false)">fold sammen</button>
   </div>
   <p class="forklaring">
+    Hvert objekt er ÉN linje: litra, type, egenskaper i sammendrag og
+    hvor mye av kablingen som er på plass. Pila folder ut linjene
+    <i>under</i> &mdash; først egenskapene, så bindingene &mdash; mens
+    linjen du klikket på står uendret. Hver bindingslinje er én
+    funksjon, og står det to portvalg på linjen, er de to halvdelene
+    av <b>samme</b> funksjon: normal og avvik, ute og på apparatet,
+    ytre og indre sensor. Symbolene er de samme som på Kabling-siden.
     Retningen på hver binding er merket:
     <span class="retn-inn">&larr; <b>inngang</b></span> — sensor, knapp
     eller bryter som anlegget melder til master (PCF8574, 0x20&ndash;0x23).
@@ -51,18 +58,28 @@
     I2C-feltet har samme farge som retningen slotten forventer.
   </p>
   <table id="tbl">
+    <!-- Kolonnebreddene MÅ stå her. Med table-layout:fixed leser
+         nettleseren bare colgroup og tabellens FØRSTE rad — og første
+         raden har en celle som spenner over alle seks portkolonnene,
+         så bredder satt på andre hoderad blir ignorert. -->
+    <colgroup>
+      <col class="c-litra"><col class="c-type">
+      <col class="c-node"><col class="c-i2c"><col class="c-port">
+      <col class="c-node"><col class="c-i2c"><col class="c-port">
+      <col class="c-slett">
+    </colgroup>
     <thead>
       <tr>
-        <th rowspan="2" style="width:6%">Litra</th>
-        <th rowspan="2" style="width:10%">Type</th>
-        <th rowspan="2" style="width:16%"></th>
-        <th class="grp" colspan="3">Binding</th>
-        <th class="grp" colspan="3">Panel (stillerapparat)</th>
+        <th rowspan="2">Litra</th>
+        <th rowspan="2">Type</th>
+        <th class="grp" colspan="6">Bindinger &mdash; én funksjon per linje</th>
         <th rowspan="2"></th>
       </tr>
       <tr>
-        <th>Node</th><th>I2C</th><th>Port</th>
-        <th>Node</th><th>I2C</th><th>Port</th>
+        <th class="pc-node">Node</th><th class="pc-i2c">I2C</th>
+        <th class="pc-port">Port</th>
+        <th class="pc-node">Node</th><th class="pc-i2c">I2C</th>
+        <th class="pc-port">Port</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -74,23 +91,27 @@
     <span id="msg"></span>
     <button class="primary" onclick="save()">Lagre og publiser</button>
   </div>
-  <p class="hint">Signaler: port = førsteport, lampene på påfølgende kanaler;
-  hovedraden er anleggssignalet. Veksler: motorutgang normal (hovedraden)
-  og avvik + stiller (betjeningsbryteren — vridd mot GND = avvik),
-  deretter én linje per stilling med stillingssensoren i bindings-
-  kolonnene og kontrollampen i panelkolonnene (lyser når stillingen er
-  bekreftet av sensor). Skiftesignal: stiller-binding = bryter
-  (mot GND = skifting tillatt). Sporfeltenes panellampe er TENT når
-  feltet er fritt; varselfeltets blinker mens varslet står ukvittert.
+  <p class="hint">Signaler: port = førsteport, lampene ligger på
+  påfølgende kanaler. Veksler: drivutgang normal og avvik,
+  stillingssensor per stilling, og kontrollampen som lyser når
+  stillingen er bekreftet av sensor; apparatstiller og lokalbetjening
+  er de to måtene vekselen kan legges om på (vridd mot GND = den
+  stillingen), og lokalstillerlampen er tent når vekselen er frigitt
+  for lokal omlegging. Skiftesignal: stiller-bindingen er en bryter
+  (mot GND = skifting tillatt). Sporavsnittenes panellampe er TENT når
+  avsnittet er fritt; varselfeltets blinker mens varslet står ukvittert.
   Varselfelt: sensor-ytre = lengst fra stasjonen — slår den ut
   først, er toget i anmarsj og varselklokken ringer; indre først =
   utgående tog, intet varsel. Brytere med rolle signalstopp/frigivning:
-  panel-bindingen er kontrollampen; sporvekselens lokalstillerlampe er tent når
-  den er frigitt for lokal omlegging.
-  Sporfelt: én sensorrad per seksjon feltet krysser (logisk OR).
-  Alle bindinger starter på «—» (ingen) — rader du lar stå tomme
+  den andre halvdelen av linjen er kontrollampen.
+  Sporavsnitt: ett avsnitt kan være bygget av FLERE sporfelt — én
+  linje per sporfelt (logisk ELLER), og «+ sporfelt» legger til flere.
+  Det er sporfeltet som er den fysiske kretsen med relé og isolerte
+  skjøter; avsnittet er det forriglingen regner med.
+  Alle bindinger starter på «—» (ingen) — linjer du lar stå tomme
   lagres ikke. Bindinger er valgfrie: en litra uten bindinger finnes
-  rent logisk (f.eks. sporfelt som simuleres til sensorene er koblet).
+  rent logisk (f.eks. et sporavsnitt som simuleres til sporfeltene er
+  koblet).
   I2C-forvalgene er kun forslag — enhver PCA9685 kan drive enhver
   utgang, og en node kan ha flere av hver brikke.</p>
 </section>

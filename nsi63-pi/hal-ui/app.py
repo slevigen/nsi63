@@ -690,6 +690,89 @@ def api_master():
 # master ignorerer HELLO fra naboens noder. Filen eier verdien;
 # publiseres retained ved lagring (samme mønster som hal.json).
 
+# ---------- tidslåsene ----------
+# Modelljernbaner kjører som regel med hurtigklokke, og da blir
+# forbildets tider urimelig lange: 90 sekunders hjelpeutløsning er et
+# minutt og et halvt av ekte venting midt i en skiftebevegelse som
+# «egentlig» tok fem minutter. Derfor er alle sammen stembare.
+#
+# Tabellen er ÉN kilde: den validerer lagringen, og UI-et henter den
+# for å tegne skjemaet med forbildeverdien ved siden av feltet. Master
+# klemmer verdiene om igjen på sin side — konfigen kan komme fra hvem
+# som helst med en MQTT-klient, og et tidsvern skal ikke kunne settes
+# til noe farlig utenfra.
+TIDSLAASER = [
+    {"navn": "hjelpeutlosning_s", "enhet": "s", "min": 5, "maks": 300,
+     "av": True, "standard": 90, "forbilde": "ca. 90 s",
+     "tittel": "Hjelpeutløsning",
+     "hva": "Tidsreléet mellom trinn 2 og at togveien faktisk løses ut. "
+            "Ventetiden er hele vernet: den gir tid til å oppdage at "
+            "utløsningen var feil. 0 = av, altså momentan utløsning.",
+     "kilde": "«Arbeid på signalanlegg 1» s. 44 og 111"},
+    {"navn": "lok_etterlop_s", "enhet": "s", "min": 1, "maks": 120,
+     "av": True, "standard": 10, "forbilde": "ca. 10 s",
+     "tittel": "Lok-frigivning, etterløp",
+     "hva": "Frigivningen står ved lag så lenge etter at stilleren er "
+            "tatt tilbake, så et skift midt i en bevegelse ikke mister "
+            "vekselen under seg. Samme etterløp gjelder rigelens "
+            "tilbaketaking. 0 = av, og da er vernet borte.",
+     "kilde": "instruksen III.1.D"},
+    {"navn": "veksel_omlegging_ms", "enhet": "ms", "min": 200,
+     "maks": 10000, "av": False, "standard": 1500,
+     "forbilde": "ikke en forbildetid",
+     "tittel": "Vekselomlegging uten sensorer",
+     "hva": "Hvor lenge master venter før den ANTAR at en veksel uten "
+            "stillingssensorer ligger i den nye stillingen. Følger "
+            "vekselmaskinen i modellen: en treg motordrift bruker "
+            "3000–8000 ms, en spoledrift under 500.",
+     "kilde": ""},
+    {"navn": "veksel_timeout_ms", "enhet": "ms", "min": 500,
+     "maks": 30000, "av": False, "standard": 5000,
+     "forbilde": "ikke en forbildetid",
+     "tittel": "Vekselomlegging med sensorer",
+     "hva": "Uteblir kontrollen så lenge, meldes vekselen UTE AV "
+            "KONTROLL. Må ligge over omleggingstiden — ellers meldes "
+            "vekselen som feil før den rekker å legge om.",
+     "kilde": ""},
+    {"navn": "klokke_maks_s", "enhet": "s", "min": 5, "maks": 120,
+     "av": False, "standard": 30,
+     "forbilde": "ringer til kvittering",
+     "tittel": "Klokkens spolevern",
+     "hva": "Ringingen kappes hardt etter denne tiden, også uten "
+            "kvittering. Ikke en forbildetid, men et vern: solenoiden "
+            "i modellen er ikke bygget for kontinuerlig drift. "
+            "Panellampen blinker videre — det er den som bærer "
+            "meldingen. Kan ikke slås av.",
+     "kilde": ""},
+]
+TIDSLAAS = {t["navn"]: t for t in TIDSLAASER}
+
+
+def _les_tider(d: dict) -> dict:
+    """Tidslåsene fra en konfigdict, klemt innenfor grensene.
+
+    «hjelpeutlosning_s» lå på toppnivå før tidslåsene ble en gruppe, og
+    leses derfra som reserve: en eldre anlegg.json skal ikke miste
+    verdien og få 90 s i fanget.
+    """
+    inn = d.get("tider") if isinstance(d.get("tider"), dict) else {}
+    ut = {}
+    for t in TIDSLAASER:
+        rå = inn.get(t["navn"], d.get(t["navn"], t["standard"]))
+        try:
+            v = int(rå)
+        except (TypeError, ValueError):
+            v = t["standard"]
+        if not (t["av"] and v == 0):
+            v = max(t["min"], min(t["maks"], v))
+        ut[t["navn"]] = v
+    # Timeouten må ligge etter omleggingstiden — samme regel som master
+    # håndhever på sin side.
+    if ut["veksel_timeout_ms"] <= ut["veksel_omlegging_ms"]:
+        ut["veksel_timeout_ms"] = min(30000, ut["veksel_omlegging_ms"] + 500)
+    return ut
+
+
 def _les_anlegg() -> dict:
     try:
         with open(ANLEGG_FILE, encoding="utf-8") as f:
@@ -702,19 +785,24 @@ def _les_anlegg() -> dict:
     # signaler og funksjoner som er RIKTIGE for anlegget (høyt
     # skiftesignal med én eller to lamperekker, middelkontrollampe eller
     # sistevognskontroll). Standard True = som anleggene flest.
-    try:
-        hs = int(d.get("hjelpeutlosning_s", 90))
-    except (TypeError, ValueError):
-        hs = 90
-    if hs != 0:
-        hs = max(5, min(300, hs))
-    return {"id": d.get("id", ""), "adopter": bool(d.get("adopter", True)),
+    tider = _les_tider(d)
+    return {"id": d.get("id", ""),
+            # Navnene over apparatet: stasjonen selv midtstilt, og
+            # nabostasjonene i hver ende av linjen. Panelet
+            # fabrikkerer ALDRI navn selv — står stasjonsnavnet tomt,
+            # viser det anleggs-IDen; står nabonavnene tomme, står
+            # endene tomme.
+            "navn": str(d.get("navn", "")).strip(),
+            "nabo_venstre": str(d.get("nabo_venstre", "")).strip(),
+            "nabo_hoyre": str(d.get("nabo_hoyre", "")).strip(),
+            "adopter": bool(d.get("adopter", True)),
             "testmodus": bool(d.get("testmodus", False)),
             "fjernstyrt": bool(d.get("fjernstyrt", True)),
-            # Hjelpeutløsningens tidsrelé i sekunder. Forbildet har ca. 90 s
-            # («Arbeid på signalanlegg 1» s. 44 og 111). 0 = av, altså
-            # momentan utløsning på trinn 2.
-            "hjelpeutlosning_s": hs,
+            "tider": tider,
+            # Hjelpeutløsningen speiles på toppnivå der den alltid har
+            # ligget. En master som ikke er oppdatert leser bare den, og
+            # skal ikke miste tidsreléet fordi verdien flyttet seg.
+            "hjelpeutlosning_s": tider["hjelpeutlosning_s"],
             # Dekningsstilling: krysningsvekselen i motsatt ende legges vekk
             # fra togveiens spor ved sikring av innkjørtogvei, uten å låses.
             "dekningsstilling": bool(d.get("dekningsstilling", True))}
@@ -724,6 +812,10 @@ def _les_anlegg() -> dict:
 def api_anlegg():
     d = _les_anlegg()
     d["ack"] = cache["anlegg_ack"]
+    # Beskrivelsen av tidslåsene følger med, så UI-et slipper å ha sin
+    # egen kopi av forbildeverdiene. Den LAGRES ikke og publiseres
+    # ikke — den er ren opplysning om skjemaet.
+    d["tider_def"] = TIDSLAASER
     return jsonify(d)
 
 
@@ -770,6 +862,14 @@ def _oppdater_ap_og_hostname(aid: str) -> dict:
 def api_anlegg_save():
     data = request.get_json(force=True) or {}
     aid = str(data.get("id", "")).strip().upper()
+    # Navnene må BÆRES GJENNOM lagringen. Konfigen er en hviteliste,
+    # og et felt som ikke nevnes her blir borte neste gang noen
+    # trykker lagre et annet sted — navnene ville forsvunnet av seg
+    # selv uten at noen rørte dem. Derfor: dagens verdi som reserve.
+    naa = _les_anlegg()
+    navn, nabo_v, nabo_h = (
+        str(data.get(k, naa[k])).strip()[:24]
+        for k in ("navn", "nabo_venstre", "nabo_hoyre"))
     adopter = bool(data.get("adopter", True))
     # Testmodus er en SIKKERHETSOMGÅELSE: MQTT-kommandoer omgår
     # forriglingen. Den lagres som konfig (synlig i sikkerhetskopien),
@@ -777,18 +877,38 @@ def api_anlegg_save():
     testmodus = bool(data.get("testmodus", False))
     fjernstyrt = bool(data.get("fjernstyrt", True))
     dekning = bool(data.get("dekningsstilling", True))
-    try:
-        hjelp = int(data.get("hjelpeutlosning_s", 90))
-    except (TypeError, ValueError):
-        hjelp = 90
-    if hjelp != 0 and not (5 <= hjelp <= 300):
-        return jsonify({"error": "hjelpeutløsning må være 0 (av) eller "
-                        "mellom 5 og 300 sekunder — forbildet har 90"}), 400
+    # Tidslåsene: AVVIS verdier utenfor grensene i stedet for å klemme
+    # dem stille. Den som skriver 3 sekunders hjelpeutløsning skal få
+    # vite at det ikke går, ikke oppdage 5 neste gang siden åpnes.
+    inn = data.get("tider") if isinstance(data.get("tider"), dict) else {}
+    tider = {}
+    for t in TIDSLAASER:
+        rå = inn.get(t["navn"], data.get(t["navn"], t["standard"]))
+        try:
+            v = int(rå)
+        except (TypeError, ValueError):
+            return jsonify({"error": f"{t['tittel']} må være et helt tall"}), 400
+        if not (t["av"] and v == 0) and not (t["min"] <= v <= t["maks"]):
+            return jsonify({"error":
+                f"{t['tittel']}: {v} {t['enhet']} er utenfor "
+                f"{t['min']}–{t['maks']} {t['enhet']}"
+                + (" (0 = av)" if t["av"] else "")
+                + f" — forbildet har {t['forbilde']}"}), 400
+        tider[t["navn"]] = v
+    if tider["veksel_timeout_ms"] <= tider["veksel_omlegging_ms"]:
+        return jsonify({"error":
+            "vekseltimeouten må være LENGER enn omleggingstiden — ellers "
+            "meldes en veksel med sensorer som ute av kontroll før den "
+            "rekker å legge om"}), 400
     if aid and not re.fullmatch(r"[A-Z]{3}", aid):
         return jsonify({"error": "anleggs-ID må være nøyaktig tre store "
                         "bokstaver A-Z — eller tom for å skru av filteret"}), 400
-    d = {"id": aid, "adopter": adopter, "testmodus": testmodus,
-         "fjernstyrt": fjernstyrt, "hjelpeutlosning_s": hjelp,
+    d = {"id": aid, "navn": navn,
+         "nabo_venstre": nabo_v, "nabo_hoyre": nabo_h,
+         "adopter": adopter, "testmodus": testmodus,
+         "fjernstyrt": fjernstyrt, "tider": tider,
+         # ... og speilet på toppnivå for en master som ikke er oppdatert
+         "hjelpeutlosning_s": tider["hjelpeutlosning_s"],
          "dekningsstilling": dekning}
     with lock:                              # samme mønster som hal/forrigling:
         _skriv_atomisk(ANLEGG_FILE, d)      # atomisk, holdbart, og
@@ -1874,13 +1994,23 @@ def panel_mqttjs():
     return send_file(sti, max_age=86400)
 
 
-@app.get("/panel/routed-gothic.ttf")
-def panel_font():
-    """Routed Gothic (Camillo Osias, SIL OFL) — skiltfonten på
-    sporplanen. Lokal kopi: panelet skal aldri hente noe utenfra."""
-    sti = Path(__file__).resolve().parent / "routed-gothic.ttf"
+# Routed Gothic (Camillo Osias, SIL OFL) — skiltfonten. Lokale
+# kopier: panelet skal aldri hente noe utenfra.
+#
+# Familien har INGEN bold. Alle ni filene er vekt 400, og «wide» er
+# bredere, ikke tyngre — det er en tegnefont med én pennebredde.
+# Stasjonsnavnene bruker samme snitt som skiltene; tyngden kommer fra
+# en strek lagt utenpå i panel.html.
+PANEL_FONTER = {"routed-gothic.ttf", "Nordvester-Regular.ttf"}
+
+
+@app.get("/panel/<fil>")
+def panel_font(fil):
+    if fil not in PANEL_FONTER:
+        return jsonify({"error": "ukjent fil"}), 404
+    sti = Path(__file__).resolve().parent / fil
     if not sti.exists():
-        return jsonify({"error": "routed-gothic.ttf mangler"}), 404
+        return jsonify({"error": f"{fil} mangler"}), 404
     return send_file(sti, max_age=86400)
 
 
@@ -2148,7 +2278,12 @@ UI_FILER = {"app.js": "application/javascript",
             "app.css": "text/css",
             # Lampefargene deles med stillerapparatet (/panel), så de
             # to ikke kan si ulike ting om samme signal.
-            "signalfarger.js": "application/javascript"}
+            "signalfarger.js": "application/javascript",
+            # Hammerlakken på stillerapparatets betjeningsflate
+            # (/panel). Et fotografi, så den ligger som fil og ikke
+            # som data-URI i panel.html — nettleseren skal få cache
+            # den, ikke hente den på nytt ved hver last.
+            "hammerlakk.png": "image/png"}
 
 
 @app.get("/ui/<fil>")
@@ -2158,8 +2293,16 @@ def ui_fil(fil):
     sti = UI_DIR / fil
     if not sti.exists():
         return jsonify({"error": f"{fil} mangler — kjør deploy"}), 404
-    # max_age=0: konfigverktøyet skal aldri servere gammel kode fra
+    # max_age=0 på ALT: verktøyet skal aldri servere noe gammelt fra
     # nettleserens buffer etter en utrulling.
+    #
+    # Bildene fikk en gang et døgns cache, siden de er tunge og ligger
+    # i ro. Det var feil. Hammerlakkflisa byttet størrelse, og en
+    # nettleser som satt på den gamle passet den inn i den nye boksen
+    # med preserveAspectRatio — resultatet var loddrette striper uten
+    # tekstur over hele betjeningsflaten. Flisas mål er en del av
+    # oppsettet, ikke bare av utseendet. send_file legger på ETag, så
+    # en uendret fil koster uansett bare et 304.
     return send_file(sti, max_age=0, mimetype=UI_FILER[fil])
 
 

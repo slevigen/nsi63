@@ -19,36 +19,30 @@ const TYPES = ["hovedsignal3","hovedsignal2","forsignal2",
 // Grupper i HAL-tabellen: objektene som inngår i forriglingen først,
 // alt annet samlet nederst. Typevalget på raden begrenses til gruppen.
 // Gruppene er HOMOGENE med vilje: alle typer i en gruppe har samme
-// hovedbinding (roller(t)[0]). Det er forutsetningen for at
-// kolonneteksten i gruppeoverskriften kan stemme — «bind» og «panel»
-// under sier hva de to kolonnepar ene ER for nettopp denne gruppen.
-// Tom «panel» = kolonnen er ikke i bruk her (feltene er deaktivert).
+// bindingsrader (se bindingsrader()). «venstre» og «hoyre» navngir de
+// to portkolonnene der ALLE radene i gruppen deler samme par — for
+// veksler er det normal og avvik. Der parene varierer fra rad til rad
+// (sporfelt, låser) står de tomme, og radetiketten sier det i stedet.
 const GRUPPER = [
   {navn: "Signaler",    typer: ["hovedsignal3","hovedsignal2",
                                 "forsignal2",
                                 "skiftesignal2","skiftesignal1",
                                 "dvergsignal3"],
-   bind: "signallampene ute (førsteport)",
-   panel: "kontrollamper på apparatet"},
-  {navn: "Sporveksler", typer: ["sporveksel","manuellveksel"],
-   bind: "drivutgang normal",
-   panel: "(ubrukt — kontrollamper ligger på egne rader)"},
-  {navn: "Sporfelt",    typer: ["sporfelt"],
-   bind: "sporfeltsensor",
-   panel: "kontrollampe på apparatet"},
+   venstre: "ute på anlegget", hoyre: "på stillerapparatet"},
+  {navn: "Veksler", typer: ["sporveksel","manuellveksel"],
+   venstre: "normal", hoyre: "avvik"},
+  {navn: "Sporavsnitt", typer: ["sporfelt"],
+   venstre: "", hoyre: ""},
   {navn: "Trykknapper og brytere", typer: ["trykknapp","bryter"],
-   bind: "knappen/bryteren",
-   panel: "kontrollampe på apparatet"},
+   venstre: "inngangen", hoyre: "kontrollampe"},
   // Sporsperren er en egen ting: normalstillingen er PÅLAGT, den har
   // ingen ende og ingen Lok-frigivning. Den står her nede fordi det
   // er låsene som frigir den — men i EGEN gruppe, siden hovedbindingen
   // (ut-paalagt) er en annen enn låsenes (anlegg).
   {navn: "Sporsperrer", typer: ["sporsperre"],
-   bind: "drivutgang pålagt",
-   panel: "(ubrukt — kontrollampen ligger på egen rad)"},
+   venstre: "pålagt", hoyre: "avlagt"},
   {navn: "Låser",       typer: ["samlelaas","rigel"],
-   bind: "frigittlampe ved låsen",
-   panel: "kontrollampe på apparatet"},
+   venstre: "", hoyre: ""},
   // «utgang» og «inngang» er RENE bindingsholdere: master har ingen
   // logikk for dem, så de driver ingenting av seg selv. De er nyttige
   // for å reservere porter og dokumentere kabling — men en port bundet
@@ -56,10 +50,9 @@ const GRUPPER = [
   {navn: "Annet",       typer: ["utgang","inngang","klokke",
                                 "amperemeter"],
    // Eneste gruppe som blander retning: «utgang» reserverer en
-   // utgangsport, «inngang» en inngangsport. Teksten står derfor uten
-   // pil — radene under er merket hver for seg.
-   bind: "porten som reserveres (retning følger typen)",
-   bindNoytral: true, panel: ""},
+   // utgangsport, «inngang» en inngangsport. Radene er merket hver for
+   // seg — retningsfargen på I2C-feltet sier hva porten er.
+   venstre: "", hoyre: ""},
 ];
 const COLLAPSED = new Set();   // sammenlagte grupper (per sidevisning)
 // Utfoldede objektrader. Radene ligger i DOM-en uansett — bare skjult
@@ -80,9 +73,11 @@ const I2C_ALLE = ["0x40","0x41","0x42","0x43","0x20","0x21","0x22","0x23"];
 // kart til fysiske pinner på AtomS3 Lite. Inn ELLER ut per port —
 // retningen avledes av bindingsstedet, master ordner resten.
 const GPIO_PINNER = ["G5","G6","G7","G8","G38","G39"];
+// Kort etikett — nedtrekket skal ikke være bredere enn det trenger.
+// Brikkenavnet i klartekst står i select-ens title.
 function i2cLabel(a) {
-  if (a === "gpio") return "GPIO (på noden)";
-  return a + (a.startsWith("0x4") ? " PCA9685" : " PCF8574");
+  if (a === "gpio") return "GPIO";
+  return a + (a.startsWith("0x4") ? " PCA" : " PCF");
 }
 // Brikkene valgt node faktisk har meldt (null = ukjent -> full liste)
 function i2cListFor(nodeVal) {
@@ -120,23 +115,7 @@ const isDverg = t => sigKlasse(t) === "dvergsignal";
 // sjekk KLASSEN — aldri typenavnet. Da følger en eventuell tredje
 // variant med av seg selv.
 const isSkift = t => sigKlasse(t) === "skiftesignal";
-// Rolle-listen per type: [0] er hovedradens binding, resten faste underrader
-function roller(t) {
-  if (isVeksel(t))
-    return ["ut-normal","ut-avvik","sensor-normal","sensor-avvik",
-            "panel-normal","panel-avvik"];
-  // Manuellveksel: drivutganger om den skal kunne betjenes med
-  // knapp/bryter over noden — ingen sensorer, ingen kontrollamper.
-  if (isManuell(t)) return ["ut-normal","ut-avvik"];
-  // Sporsperre: valgfrie drivutganger og ÉN pålagt-kontroll, med
-  // sperrens egne ord.
-  if (isSperre(t)) return ["ut-paalagt","ut-avlagt","sensor-paalagt"];
-  if (t === "sporfelt") return ["sensor"];
-  return ["anlegg"];
-}
-const panelOk = t => isSignal(t) || t === "sporfelt" ||
-                     t === "bryter" || t === "trykknapp" ||
-                     isLaas(t);   // kontrollampen på apparatet
+
 
 // Attributt-escaping. Litra, notater og kallenavn er BRUKERDATA og
 // settes inn i HTML-attributter via innerHTML. Uten escaping bryter
@@ -157,20 +136,25 @@ function aliasFor(mac) {
   for (const [a, v] of Object.entries(NODER)) if (v.mac === mac) return a;
   return null;
 }
+// Merk: statusen står som ETT tegn, ikke som «(aldri sett)» i
+// klartekst. Et nedtrekk er like bredt som sitt bredeste valg, og
+// dette gjentas på hver eneste bindingslinje — teksten kostet mer
+// bredde enn den var verdt. Tegnene forklares i select-ens title.
+//   ⊘ = kjent node som er offline nå
+//   ? = aldri sett (planlagt, eller aldri startet)
 function nodeOptions(sel, allowEmpty) {
   let out = allowEmpty ? opt("", "—", sel) : "";
   const seen = new Set();
   for (const [alias, v] of Object.entries(NODER)) {
     seen.add(alias); seen.add(v.mac);
     const live = liveNodes.find(n => n.mac === v.mac);
-    const tag = live ? (live.online ? "" : " (offline)") : " (aldri sett)";
-    out += opt(alias, alias + tag, sel);
+    out += opt(alias, alias + (live ? (live.online ? "" : " ⊘") : " ?"), sel);
   }
   for (const n of liveNodes) {
     if (seen.has(n.mac)) continue;
-    out += opt(n.mac, n.mac + (n.online ? "" : " (offline)"), sel);
+    out += opt(n.mac, n.mac + (n.online ? "" : " ⊘"), sel);
   }
-  if (sel && !out.includes(`value="${sel}"`)) out += opt(sel, sel + " (ukjent)", sel);
+  if (sel && !out.includes(`value="${sel}"`)) out += opt(sel, sel + " ?", sel);
   return out;
 }
 function portCount(addr) {
@@ -202,19 +186,16 @@ function nodeChanged(sel, prefix) {
   if (!i2cSel.value) i2cSel.selectedIndex = 0;
   i2cChanged(i2cSel, prefix);
 }
-// sted: hva slotten er FOR — brukes bare til fargemerking, så det
-// synes hvor det skal velges en inngang og hvor en utgang.
-// innOverstyr: sett når stedsnavnet ikke avgjør retningen (typene
-// «inngang»/«utgang», som begge bruker stedet «anlegg»).
-function bindCells(prefix, b, defI2c, sted, innOverstyr) {
+// sted: hva slotten er FOR — avgjør brikkeforslag og retningsfarge, så
+// det synes hvor det skal velges en inngang og hvor en utgang.
+function bindCells(prefix, b, t, sted) {
   // Alle bindinger starter på "—" (ingen) — bare bevisste valg lagres
-  const i2cVal = b.i2c || defI2c;
-  const inn = innOverstyr === undefined ? erInngang(sted) : innOverstyr;
-  const kls = sted ? (inn ? " retn-inn" : " retn-ut") : "";
+  const i2cVal = b.i2c || defaultI2c(t, sted);
+  const kls = bindErInngang(t, sted) ? " retn-inn" : " retn-ut";
   return `
-    <td class="pc"><select class="${prefix}-node" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
-    <td class="pc i2c${kls}"><select class="${prefix}-i2c" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
-    <td class="pc port"><select class="${prefix}-port">${portOptions(portCount(i2cVal), b.port??0, i2cVal)}</select></td>`;
+    <td class="pc"><select class="${prefix}-node" title="Noden porten sitter på. ⊘ = offline nå, ? = aldri sett" onchange="nodeChanged(this,'${prefix}')">${nodeOptions(b.node||"", true)}</select></td>
+    <td class="pc i2c${kls}"><select class="${prefix}-i2c" title="I2C-brikke: 0x40–0x43 = PCA9685 (16 utganger), 0x20–0x23 = PCF8574 (8 innganger), GPIO = nodens egne pinner" onchange="i2cChanged(this,'${prefix}')">${i2cOptions(b.node||"", i2cVal)}</select></td>
+    <td class="pc port"><select class="${prefix}-port" title="port på brikken">${portOptions(portCount(i2cVal), b.port??0, i2cVal)}</select></td>`;
 }
 // Er dette bindingsstedet en INNGANG (noe anlegget forteller master)
 // eller en UTGANG (noe master driver)? Én kilde til sannhet for både
@@ -225,33 +206,36 @@ function erInngang(sted) {
   return sted.startsWith("sensor") || sted.startsWith("stiller") ||
          sted.startsWith("lokal-") || sted === "kvittering";
 }
-// Retningen på HOVEDRADENS binding. «inngang» og «utgang» er rene
-// bindingsholdere som begge bruker stedet «anlegg» — der er det TYPEN
-// som sier hva porten er, ikke stedsnavnet.
-function hovedErInngang(t) {
-  // Samme liste som serverens _er_inngangsbinding og masterens
-  // erInngangsType: disse tre leses via «anlegg», men ER innganger.
-  if (t === "trykknapp" || t === "bryter" || t === "inngang") return true;
-  if (t === "utgang") return false;
-  return erInngang(roller(t)[0]);
+// Samme spørsmål, men med TYPEN med: «trykknapp», «bryter» og
+// «inngang» binder alle via stedet «anlegg», og der er det typen som
+// sier at porten er en inngang. Samme liste som serverens
+// _er_inngangsbinding og masterens erInngangsType.
+function bindErInngang(t, sted) {
+  if (sted === "anlegg" &&
+      (t === "trykknapp" || t === "bryter" || t === "inngang")) return true;
+  return erInngang(sted);
 }
-function defaultI2c(sted) {
-  if (erInngang(sted)) return "0x20";   // PCF8574
+function defaultI2c(t, sted) {
+  if (bindErInngang(t, sted)) return "0x20";   // PCF8574
   if (sted.startsWith("ut-")) return "0x41";   // PCA9685, drivutgang
-  return "0x40";                                // PCA9685, lamper
+  return "0x40";                               // PCA9685, lamper
 }
-// sted2/b2: valgfri binding nr. 2 på samme linje, i panelkolonnene
-// (brukes av veksler: kontrollampen på stillingssensorens linje)
-// Pilen peker den veien signalet går: inn til master fra anlegget,
-// eller ut fra master til anlegget. Fargen gjentar det, så det leses
-// på et blikk uten å måtte kunne navnene.
-function merk(sted) {
-  return erInngang(sted)
-    ? `<span class="retn-inn">&larr; ${sted}</span>`
-    : `<span class="retn-ut">${sted} &rarr;</span>`;
+// Én FUNKSJON per linje. sted2/b2 er den andre halvdelen av funksjonen
+// — normal og avvik, ute og på apparatet, ytre og indre — aldri to
+// urelaterte bindinger som tilfeldigvis ble stående på samme rad.
+//
+// Symbolet er det SAMME som på Kabling-siden (portSymbol), så en port
+// har samme tegn uansett hvilken vei man leser anlegget. Fargen er
+// retningen. Har de to halvdelene ulikt symbol (sensor + lampe),
+// vises begge — da er det ingen tvil om hvilken kolonne som er hva.
+function bindSym(t, sted) {
+  const kls = bindErInngang(t, sted) ? "retn-inn" : "retn-ut";
+  return `<span class="bsym ${kls}" title="${sted}">` +
+         `${portSymbol(sted, t)}</span>`;
 }
-function addSubRow(fnTr, sted, b, removable, sted2, b2) {
+function addSubRow(fnTr, sted, b, removable, sted2, b2, navn, par) {
   b = b || {};
+  const t = fnTr.querySelector(".f-type").value;
   const del = removable
     ? '<button class="row-del" onclick="this.closest(\'tr\').remove()">✕</button>'
     : "";
@@ -259,14 +243,17 @@ function addSubRow(fnTr, sted, b, removable, sted2, b2) {
   tr.className = "subrow";
   tr.dataset.sted = sted;
   if (sted2) tr.dataset.sted2 = sted2;
-  const lbl = `<span class="tregren"></span>` +
-              (sted2 ? `${merk(sted)} + ${merk(sted2)}` : merk(sted));
-  const hoyre = sted2
-    ? bindCells("t", b2 || {}, defaultI2c(sted2), sted2)
-    : `<td colspan="3"></td>`;
+  let sym = bindSym(t, sted);
+  if (sted2 && portSymbol(sted2, t) !== portSymbol(sted, t))
+    sym += bindSym(t, sted2);
+  const lbl = `${sym}` +
+              `<span class="bnavn">${navn || sted}</span>` +
+              (par ? `<span class="bpar">${par}</span>` : "");
+  const hoyre = sted2 ? bindCells("t", b2 || {}, t, sted2)
+                      : `<td colspan="3" class="tom"></td>`;
   tr.innerHTML = `
-    <td colspan="3" class="sub-label">${lbl}</td>
-    ${bindCells("s", b, defaultI2c(sted), sted)}
+    <td colspan="2" class="sub-label">${lbl}</td>
+    ${bindCells("s", b, t, sted)}
     ${hoyre}
     <td>${del}</td>`;
   let after = fnTr;
@@ -316,9 +303,42 @@ function egenskapSum(full) {
   if (kryss.length) deler.push(kryss.join(", "));
   return deler.join(" · ");
 }
+// Egenskapslinjen til et objekt: første underrad, rett under
+// identiteten. Den ligger der HELE tiden — bare skjult når objektet er
+// sammenlagt — så alt som leser feltene finner dem uansett.
+function attrRad(tr) {
+  const n = tr.nextElementSibling;
+  return (n && n.classList.contains("attrrow")) ? n : null;
+}
+// Et felt på objektet, uansett om det står på identitetslinjen
+// (litra, type) eller på egenskapslinjen under.
+// Velgeren har TO etiketter for feltet mot linjen — blokksporfelt og
+// linjefelt — men rollen som LAGRES er den samme. Forskjellen er
+// linjeblokk-flagget. Alt som spør «er dette et linjefelt?» må gå
+// gjennom denne, ellers svarer et blokksporfelt nei.
+const rolleVerdi = v => (v === "blokksporfelt") ? "linjefelt" : v;
+function radRolle(tr) {
+  const s = felt(tr, ".f-rolle");
+  return s ? rolleVerdi(s.value) : "";
+}
+function felt(tr, kl) {
+  return tr.querySelector(kl) || (attrRad(tr) || tr).querySelector(kl);
+}
+function felter(tr, kl) {
+  const a = [...tr.querySelectorAll(kl)];
+  const ar = attrRad(tr);
+  return a.length || !ar ? a : [...ar.querySelectorAll(kl)];
+}
+// Objektet en kontroll hører til — kontrollen kan stå på
+// egenskapslinjen, og da er closest("tr") IKKE identitetslinjen.
+function eierRad(el) {
+  const tr = el.closest("tr");
+  return tr.classList.contains("fnrow") ? tr : radHovedrad(tr);
+}
 function decorateRow(tr) {
   const t = tr.querySelector(".f-type").value;
-  const extraCell = tr.querySelector(".f-extra .xfull");
+  const arad = attrRad(tr);
+  const extraCell = arad.querySelector(".xfull");
   if (t === "forsignal2") {
     // Etiketten står UTENFOR select-en, så litraen alltid er synlig
     const curM = tr.dataset.montert || "";
@@ -326,7 +346,7 @@ function decorateRow(tr) {
     extraCell.innerHTML =
       `<span class="hint">montert:</span> ` +
       `<select class="f-montert" title="Hovedsignal på samme mast — forsignalet slukkes når det viser stopp" onfocus="fillHovedSel(this)">` +
-      opt(curM, curM || "—", curM) + `</select><br>` +
+      opt(curM, curM || "—", curM) + `</select><span class="axsep"></span>` +
       `<span class="hint">varsler:</span> ` +
       `<select class="f-varsler" style="margin-top:2px" title="Hovedsignalet forsignalet varsler om — bildet følger det automatisk. «auto»: forriglingen avleder utkjørsignalet fra den aktive togveiens spor (krever utkjørtogveier med spor satt i tabellen). Et valgt signal brukes som reserve når avledningen ikke finner noe." onfocus="fillHovedSel(this)">` +
       opt(curV, curV || "auto", curV) + `</select>`;
@@ -337,7 +357,7 @@ function decorateRow(tr) {
       `<select class="f-rolle" title="Innkjør viser 20A (blink) i stopp, utkjør viser 20B (fast). Indre hovedsignal brukes for togveier fra togspor til togspor.">` +
       opt("innkjor", "innkjør", cur) + opt("utkjor", "utkjør", cur) +
       opt("indre", "indre (ikke i master ennå)", cur) +
-      `</select><br>` +
+      `</select><span class="axsep"></span>` +
       `<span class="hint">foran:</span> ` +
       `<select class="f-linje" style="margin-top:2px" title="Linjefeltet signalet står FORAN (i signalets kjøreretning): innkjør foran linjefeltet det står ved på vei inn, utkjør foran linjefeltet toget kjører ut på. Brukes til å avlede signalet når togveier lages fra→til." onfocus="fillLinjeSel(this)">` +
       opt(curL, curL || "—", curL) + `</select>`;
@@ -345,7 +365,7 @@ function decorateRow(tr) {
     const curL = tr.dataset.linje || "";
     extraCell.innerHTML =
       `<select class="f-rolle" title="Tolys utkjørsignal: viser bare 20B (stopp) og 21 (kjør redusert) — for spor der utkjøring alltid går over veksel i avvik. Alltid rolle utkjør.">` +
-      opt("utkjor", "utkjør (tolys)", "utkjor") + `</select><br>` +
+      opt("utkjor", "utkjør (tolys)", "utkjor") + `</select><span class="axsep"></span>` +
       `<span class="hint">foran:</span> ` +
       `<select class="f-linje" style="margin-top:2px" title="Linjefeltet signalet står foran (linjefeltet toget kjører ut på)" onfocus="fillLinjeSel(this)">` +
       opt(curL, curL || "—", curL) + `</select>`;
@@ -354,8 +374,8 @@ function decorateRow(tr) {
     extraCell.innerHTML =
       `<span class="hint">på mast:</span> ` +
       `<select class="f-montert" title="Hovedsignalet skiftesignalet er montert med (Sokna: ZL på utkjør L, ZM på utkjør M) — brukes av panelets sporplan til plasseringen. Tom = egen mast." onfocus="fillHovedSel(this)">` +
-      opt(curM, curM || "—", curM) + `</select><br>` +
-      `<span class="hint" title="Vekslene det høye skiftesignalet gjelder for — «ZM gjelder for skifting over sporveksel 1 forbi utkjørhovedsignalene M og O». Området er vekselen, ikke linjen: én stasjonshals kan betjene flere linjefelt. Stasjonsenden utledes av vekslene, så signalet trenger ingen egen venstre/høyre.">gjelder veksel:</span><br>` +
+      opt(curM, curM || "—", curM) + `</select><span class="axsep"></span>` +
+      `<span class="hint" title="Vekslene det høye skiftesignalet gjelder for — «ZM gjelder for skifting over veksel 1 forbi utkjørhovedsignalene M og O». Området er vekselen, ikke linjen: én stasjonshals kan betjene flere linjefelt. Stasjonsenden utledes av vekslene, så signalet trenger ingen egen venstre/høyre.">gjelder veksel:</span><span class="axsep"></span>` +
       skiftVekselBoks(tr);
   } else if (isDverg(t)) {
     const cur = tr.dataset.montert || "";
@@ -383,7 +403,7 @@ function decorateRow(tr) {
     const hk = tr.dataset.hakk || "50";
     const du = tr.dataset.duty || "50";
     extraCell.innerHTML =
-      `<span class="hint" title="Én klokke gjør alle jobbene, som i forbildet: varselklokke (tog i anmarsj), sporvekselklokke (omlegging/ute av kontroll), togveiklokke (togveistiller holdes utslått) og signalstoppklokke — alle med 30 s spolevern per hendelse.">alle klokkefunksjonene</span><br>` +
+      `<span class="hint" title="Én klokke gjør alle jobbene, som i forbildet: varselklokke (tog i anmarsj), vekselklokke (omlegging/ute av kontroll), togveiklokke (togveistiller holdes utslått) og signalstoppklokke — alle med 30 s spolevern per hendelse.">alle klokkefunksjonene</span><span class="axsep"></span>` +
       `<span class="hint">hakk:</span> ` +
       `<input class="f-hakk" type="number" min="10" max="250" ` +
       `style="max-width:60px" value="${hk}" ` +
@@ -422,7 +442,7 @@ function decorateRow(tr) {
       // Sporplanens portmodell: spissen + hvor greinene fører. KUN
       // tegning — master leser ingen av feltene, så de ligger skjult
       // bak «tegning»-lenka (ikke alle vil ha et digitalt panel).
-      `<br><a class="tegnvis" onclick="visTegn(this)" title="Felter som KUN styrer tegningen av sporplanen — masteren leser dem ikke. Trengs ikke uten digitalt panel.">tegning ▸</a>` +
+      `<span class="axsep"></span><a class="tegnvis" onclick="visTegn(this)" title="Felter som KUN styrer tegningen av sporplanen — masteren leser dem ikke. Trengs ikke uten digitalt panel.">tegning ▸</a>` +
       `<span class="tegnfelt" hidden> ` +
       `<span class="hint" title="Sporplanens portmodell — bare for tegningen, masteren leser det ikke. Spiss: enden tungespissen peker mot. +→/−→: sporet eller vekselen pluss-/minusgreina fører til (skriv «veksel 5» når den går rett i en annen veksel). st→: der stammen går videre i en kjede. Tomt = utledes av togveitabellen der det går.">spiss:</span> ` +
       `<select class="f-spiss">` +
@@ -452,19 +472,19 @@ function decorateRow(tr) {
       `<span class="hint">navn:</span> ` +
       `<input class="f-navn" style="max-width:90px" value="${attr(navn)}" ` +
       `placeholder="${t === "samlelaas" ? "S.LÅS I" : "Ri. Sp.II/3"}" ` +
-      `title="Visningsnavn med forbildets skrivemåte — vises i panelet og UI-et. Selve litraen (${t === "samlelaas" ? "S1" : "RI1"}) brukes i MQTT-temaene."><br>` +
-      `<span class="hint" title="${laasTip}">omfatter:</span><br>` +
-      skiftVekselBoks(tr, true) + `<br>` +
+      `title="Visningsnavn med forbildets skrivemåte — vises i panelet og UI-et. Selve litraen (${t === "samlelaas" ? "S1" : "RI1"}) brukes i MQTT-temaene."><span class="axsep"></span>` +
+      `<span class="hint" title="${laasTip}">omfatter:</span><span class="axsep"></span>` +
+      skiftVekselBoks(tr, true) + `<span class="axsep"></span>` +
       `<span class="hint">+ utenfor anlegget:</span> ` +
       `<input class="f-omfrit" style="max-width:110px" ` +
       `value="${attr(utenforAnlegget(tr).join(", "))}" ` +
       `placeholder="f.eks. V12" ` +
-      `title="Objekter låsen omfatter som IKKE er definert i anlegget: helt manuelle veksler/sperrer, eller slike som drives elektrisk av eget utstyr utenfor systemet. Anlegget ser da bare låsen — at objektene ligger riktig før sperring er operatørens ansvar, som med kontrollåsnøklene i forbildet. Kommaseparert liste; vises i panelet."><br>` +
+      `title="Objekter låsen omfatter som IKKE er definert i anlegget: helt manuelle veksler/sperrer, eller slike som drives elektrisk av eget utstyr utenfor systemet. Anlegget ser da bare låsen — at objektene ligger riktig før sperring er operatørens ansvar, som med kontrollåsnøklene i forbildet. Kommaseparert liste; vises i panelet."><span class="axsep"></span>` +
       `<span class="hint" title="Hvilke togveier låsen sperrer står i TOGVEITABELLEN: hver togvei lister låsegruppene den krever sperret. Én kilde — låsen sier hva den holder, togveien sier hva den trenger.">togvei-kravet settes i forriglingstabellen</span>`;
   } else if (isSperre(t)) {
     extraCell.innerHTML =
       `<span class="hint" title="Sporsperre: normalstillingen er PÅLAGT — det er dekningen togveiene krever. Deler vekselmaskineriet: valgfrie drivutganger for motordrevet modellsperre, valgfrie sensorer (pålagt-kontroll — uten dem antas stillingen), lokal stiller. Omlegging gates av samlelås/rigel som eier sperren. Symbol på planen: skråstrek over sporet.">normalstilling pålagt (dekning)</span>` +
-      `<br><a class="tegnvis" onclick="visTegn(this)" title="Felter som KUN styrer tegningen av sporplanen — masteren leser dem ikke. Trengs ikke uten digitalt panel.">tegning ▸</a>` +
+      `<span class="axsep"></span><a class="tegnvis" onclick="visTegn(this)" title="Felter som KUN styrer tegningen av sporplanen — masteren leser dem ikke. Trengs ikke uten digitalt panel.">tegning ▸</a>` +
       `<span class="tegnfelt" hidden> ` +
       `<span class="hint" title="Sporplanen: sporet eller forbindelsen skråstreken tegnes på — et sporfelt-litra, eller «veksel N» når sperren ligger på forbindelsen fra den vekselens stamme. Kun tegning; masteren leser det ikke.">ligger i:</span> ` +
       `<select class="f-liggeri" onfocus="fillTopoSel(this)">` +
@@ -473,24 +493,18 @@ function decorateRow(tr) {
   } else if (t === "sporfelt") {
     const cur = tr.dataset.rolle || "";
     const curSide = tr.dataset.side || "";
+    // Rollen står i TYPE-kolonnen (se typeCelle) — den er det som
+    // skiller sporfeltene fra hverandre, og gruppen har bare én type.
     extraCell.innerHTML =
-      `<select class="f-rolle" onchange="rolleChanged(this)" title="togspor = stasjonsspor der tog står; linjefelt = sporet mot en tilstøtende linje; varselfelt = kort felt ute på linjen utenfor forsignalet — varselklokken ringer for tog i anmarsj. La stå tom for interne felt som sporvekselfelt.">` +
-      opt("", "rolle: —", cur) + opt("togspor", "togspor", cur) +
-      opt("linjefelt", "linjefelt", cur) +
-      opt("varselfelt", "varselfelt", cur) +
-      opt("spor", "spor (utenfor anlegget)", cur) +
-      `</select> ` +
       (cur === "varselfelt" ? `` :
-       `<button class="mini" onclick="addSubRow(this.closest('tr'),'sensor',null,true)">+ sensor</button>`) +
+       `<button class="mini" onclick="addSubRow(eierRad(this),'sensor',null,true,null,null,'ekstra sporfelt')">+ sporfelt</button>`) +
       (cur === "linjefelt"
-        ? `<br><span class="hint">ende:</span> ` +
+        ? `<span class="axsep"></span><span class="hint">ende:</span> ` +
           `<select class="f-side" title="Hvilken stasjonsende linjefeltet ligger i — togveistillerne bruker dette til å skille innkjør (dytt inn mot stasjonen) fra utkjør (dytt ut mot linjen)">` +
           opt("", "—", curSide) + opt("v", "venstre", curSide) +
-          opt("h", "høyre", curSide) + `</select>` +
-          `<br><label class="hint" title="Har strekningen linjeblokk? UTEN linjeblokk finnes ingen automatisk kontroll av at hele toget er kommet inn: innkjørtogveien blir stående låst til txp har foretatt sistevognskontroll og kvittert med den sorte trykknappen ved varselfeltet. Togveislampen blinker mens den venter. Flagget hører til det enkelte linjefeltet — en stasjon kan ha linjeblokk mot én nabo og manuell togmelding mot en annen.">` +
-          `<input type="checkbox" class="f-lblokk"${tr.dataset.lblokk === "0" ? "" : " checked"}> linjeblokk</label>`
+          opt("h", "høyre", curSide) + `</select>`
         : cur === "varselfelt"
-        ? `<br><span class="hint">linjefelt:</span> ` +
+        ? `<span class="axsep"></span><span class="hint">linjefelt:</span> ` +
           `<select class="f-linje" title="Linjefeltet varselfeltet er koblet til — varslet gjelder den siden (siden arves fra linjefeltet)" onfocus="fillLinjeSel(this)">` +
           opt(tr.dataset.linje || "", tr.dataset.linje || "—",
               tr.dataset.linje || "") + `</select>`
@@ -502,38 +516,115 @@ function decorateRow(tr) {
   // SELV — etikett (.hint) pluss verdien på kontrollen etter den — så
   // den følger med av seg selv når en type får nye felt. Skjulte
   // felter (tegnefeltene) utelates; de hører til utfoldet visning.
-  const sum = tr.querySelector(".f-extra .xsum");
+  const sum = tr.querySelector(".xsum");
   if (sum) sum.textContent = egenskapSum(extraCell);
-  for (const c of ["p-node","p-i2c","p-port"])
-    tr.querySelector("." + c).disabled = !panelOk(t);
-  // Meldefelt: hovedradens generiske sensorbinding brukes ikke —
-  // sensor-ytre/sensor-indre ER sensorene. Deaktiver og tøm.
-  const mfelt = t === "sporfelt" &&
-                (tr.dataset.rolle || "") === "varselfelt";
-  for (const c of ["a-node","a-i2c","a-port"]) {
-    const e2 = tr.querySelector("." + c);
-    e2.disabled = mfelt;
-    if (mfelt && c === "a-node") e2.value = "";
+  // Typer uten egenskaper skal ikke få en tom linje å folde ut.
+  arad.dataset.tom = extraCell.innerHTML ? "" : "1";
+}
+// Typevelgeren. Sporvekselgruppen har bare TO typer, og de skiller
+// seg i én egenskap: er vekselen sentralstilt eller ikke. Et
+// avkryssingsfelt sier det rett ut; et nedtrekk med «sporveksel» og
+// «manuellveksel» tvinger leseren til å huske hvilket av de to ordene
+// som betyr hva.
+//
+// Nedtrekket blir stående SKJULT som verdibærer: «.f-type» er typen,
+// og et tjuetalls steder leser den — collect, portKart, decorateRow,
+// skiftVekselBoks, sporplanen. Avkryssingen styrer den, den erstatter
+// den ikke.
+const erVekselgruppe = t => GRUPPER[gruppeIdx(t)].typer.length === 2 &&
+                            GRUPPER[gruppeIdx(t)].typer.includes("sporveksel");
+// Rollevelgeren for sporfelt. Den bor i TYPE-kolonnen: gruppen har
+// bare én type, så nedtrekket der hadde ett valg og sa ingenting.
+// Rollen er det som faktisk skiller sporfeltene — togspor, linjefelt,
+// varselfelt — og hører derfor hjemme på identitetslinjen.
+// Feltet mot nabolinjen har TO betegnelser, og forskjellen er reell:
+// har strekningen linjeblokk, er feltet et BLOKKSPORFELT — lærebokas
+// eget ord («Arbeid på signalanlegg 1» s. 65 og 105–109: «nærmeste
+// blokksporfelt blir belagt»). Uten linjeblokk finnes ingen
+// blokkstrekning å være sporfelt for; strekningen kjøres på
+// togmelding, og feltet er bare linjefeltet.
+//
+// Derfor ÉN velger for begge: rollen er den samme («linjefelt»), og
+// valget setter linjeblokk-flagget. To kontroller for det samme
+// faktum ville før eller siden sagt hver sin ting — og flagget er
+// ikke pynt, det avgjør om innkjørtogveien krever sistevognskontroll.
+//
+// Grindvoll er fjernstyrt med linjeblokk: blokksporfelt. Sokna kjører
+// togmelding i begge ender: linjefelt.
+function rolleVelger(rolle, lblokk) {
+  const valgt = rolle === "linjefelt"
+    ? (lblokk ? "blokksporfelt" : "linjefelt") : rolle;
+  return `<select class="f-rolle" onchange="rolleChanged(this)" ` +
+    `title="Hva sporavsnittet ER, og dermed hva forriglingen gjør med ` +
+    `det. vekselfelt: de interne avsnittene i halsen, mellom vekslene — ` +
+    `de har ingen togvei som ender i dem, men vernes mot omlegging ` +
+    `under tog. togspor: stasjonsspor der tog står, med togveistiller. ` +
+    `blokksporfelt: avsnittet mot nabolinjen når strekningen har ` +
+    `LINJEBLOKK — blokka gir automatisk kontroll av at hele toget er ` +
+    `kommet inn. linjefelt: samme avsnitt der strekningen kjøres på ` +
+    `TOGMELDING — da blir innkjørtogveien stående låst til txp har ` +
+    `gjort sistevognskontroll og kvittert på den sorte knappen. ` +
+    `varselfelt: kort avsnitt ute på linjen utenfor forsignalet — ` +
+    `varselklokken ringer for tog i anmarsj. spor: utenfor anlegget, ` +
+    `tegnes på sporplanen men har ingen lampe og ingen forrigling.">` +
+    // Tom rolle ER vekselfeltet — det er ingen «ikke valgt», og
+    // etiketten skal si hva feltet er, ikke at noe mangler.
+    opt("", "vekselfelt", valgt) + opt("togspor", "togspor", valgt) +
+    opt("blokksporfelt", "blokksporfelt", valgt) +
+    opt("linjefelt", "linjefelt", valgt) +
+    opt("varselfelt", "varselfelt", valgt) +
+    opt("spor", "spor", valgt) + `</select>`;
+}
+function typeCelle(t, rolle, lblokk) {
+  const typer = GRUPPER[gruppeIdx(t)].typer;
+  const valg = typer.includes(t) ? typer : [t].concat(typer);
+  // Nedtrekket skjules når det ikke er noe å velge — én type i
+  // gruppen — eller når valget uttrykkes bedre på annet vis, som
+  // vekslenes «sentralstilt». Det blir stående som VERDIBÆRER: et
+  // tjuetalls steder leser «.f-type».
+  const skjul = typer.length === 1 || erVekselgruppe(t);
+  const sel = `<select class="f-type"${skjul ? " hidden" : ""}` +
+    ` onchange="typeChanged(this)">${valg.map(x => opt(x, x, t)).join("")}` +
+    `</select>`;
+  // Plassen brukes til noe som sier noe: sporfeltets rolle, eller
+  // vekselens sentralstilt-avkryssing.
+  if (t === "sporfelt")
+    return sel + rolleVelger(rolle || "", lblokk);
+  if (!erVekselgruppe(t)) return sel;
+  return sel + `<label class="sentralvalg" title="Sentralstilt veksel: ` +
+    `legges om fra stillerapparatet og inngår i forriglingen. Uten ` +
+    `avkryssing er den håndstilt — den står utenfor togveiene og ` +
+    `sikres med samlelås eller rigel.">` +
+    `<input type="checkbox" class="f-sentral" ` +
+    `${isVeksel(t) ? "checked" : ""} onchange="sentralChanged(this)">` +
+    `sentralstilt</label>`;
+}
+// Avkryssingen bytter type. De to vekseltypene deler bindingssteder —
+// drivutgang og lokalbetjening finnes på begge — så det som fortsatt
+// har en plass bæres over. Ellers ville et uhell på avkryssingen
+// slette kablingen, og en avkryssing er lettere å treffe ved et uhell
+// enn et valg i et nedtrekk.
+function sentralChanged(cb) {
+  const tr = cb.closest("tr");
+  const sel = tr.querySelector(".f-type");
+  sel.value = cb.checked ? "sporveksel" : "manuellveksel";
+  const beholdt = [];
+  let n = tr.nextElementSibling;
+  while (n && n.classList.contains("subrow")) {
+    const neste = n.nextElementSibling;
+    if (!n.classList.contains("attrrow")) {
+      beholdt.push(...lesSubrad(n));
+      n.remove();
+    }
+    n = neste;
   }
+  byggSubrader(tr, sel.value, beholdt);
+  decorateRow(tr);
+  grpOppdater();
 }
 function addRow(f, foerEl) {
   f = f || {id:"", type:"hovedsignal3", bindinger:[]};
   const t = f.type, binds = f.bindinger || [];
-  const r = roller(t);
-  // Hovedradens binding: eksakt sted, ellers et legacy-sted som ikke
-  // hører hjemme i noen underrad (gamle konfiger uten sted-felt)
-  const subSteder = ["panel","ut-avvik","sensor-normal","sensor-avvik",
-                     "panel-normal","panel-avvik","stiller",
-                     "stiller-v","stiller-h","kvittering",
-                     "sensor-ytre","sensor-indre","togveislampe",
-                     "lokalstillerlampe",
-                     "middelkontrollampe"];   // «middelkontrollampe» manglet:
-  // uten den i lista plukket fallbacken under middel-bindingen som
-  // HOVEDRADENS binding, og signalets egen lampeadresse ble overskrevet
-  // av middellampens ved neste lagring.
-  const main = binds.find(b => b.sted === r[0]) ||
-               binds.find(b => !subSteder.includes(b.sted)) || {};
-  const panel = binds.find(b => b.sted === "panel") || {};
   const tr = document.createElement("tr");
   tr.className = "fnrow";
   tr.dataset.orgId = f.id || "";   // original-litra: omdøping spores
@@ -563,34 +654,26 @@ function addRow(f, foerEl) {
   tr.dataset.avvikben = f.avvik_ben || "";
   tr.dataset.liggeri = f.ligger_i || "";
   tr.innerHTML = `
-    <td class="litra"><span class="tregren"></span><span class="rad-pil" onclick="radToggle(this)"
+    <td class="litra"><span class="rad-pil" onclick="radToggle(this)"
               title="Vis eller skjul portene for dette objektet">▸</span>` +
       `<input class="f-id" maxlength="6" value="${attr(f.id)}" ` +
       `placeholder="A" title="Litra — maks 6 tegn. Kort litra er ` +
       `forbildets egen skrivemåte (A, 01, ZM, SpIII), og det er det ` +
       `som får plass i portrutenettet og på panelet."></td>
-    <td><select class="f-type" onchange="typeChanged(this)">
-        ${(GRUPPER[gruppeIdx(t)].typer.includes(t)
-           ? GRUPPER[gruppeIdx(t)].typer
-           : [t].concat(GRUPPER[gruppeIdx(t)].typer))
-          .map(x=>opt(x,x,t)).join("")}</select></td>
-    <td class="hint f-extra"><span class="xsum"></span>
-        <span class="xfull"></span></td>
-    <td class="bindsum" colspan="6" onclick="radToggle(this)"></td>
-    ${bindCells("a", main,
-                hovedErInngang(t) ? "0x20" : defaultI2c(r[0]),
-                r[0], hovedErInngang(t))}
-    ${bindCells("p", panel, "0x40", "panel")}
+    <td>${typeCelle(t, f.rolle || "", f.linjeblokk !== false)}</td>
+    <td class="bindsum" colspan="6" onclick="radToggle(this)"
+        ><span class="xsum"></span><span class="portsum"></span></td>
     <td><button class="row-del" onclick="delFn(this)">✕</button></td>`;
   const tb = document.querySelector("#tbl tbody");
   if (foerEl) tb.insertBefore(tr, foerEl);
   else tb.appendChild(tr);
-  // Faste underrader (veksel) med lagrede verdier
+  // Alt som kan REDIGERES ligger på egne linjer under: først
+  // egenskapene, så bindingene. Identitetslinjen viser bare hva
+  // objektet er og hvor mye av kablingen som er på plass — den skifter
+  // aldri form, uansett om objektet er foldet ut eller ikke.
+  nyLuftRad(tr);          // først: alt annet settes inn foran den
+  nyAttrRad(tr);
   byggSubrader(tr, t, binds);
-  // Ekstra sensorer for sporfelt (utover hovedradens)
-  if (t === "sporfelt")
-    binds.filter(b => b.sted === "sensor" && b !== main)
-         .forEach(b => addSubRow(tr, "sensor", b, true));
   decorateRow(tr);
   return tr;
 }
@@ -599,25 +682,21 @@ function grpHeaderRow(gi) {
   const tr = document.createElement("tr");
   tr.className = "grphead";
   tr.dataset.grp = gi;
-  // Kolonneteksten hører hjemme HER, ikke i tabellhodet: hva
-  // «Binding» og «Panel» er, avhenger av objekttypen, og innenfor en
-  // gruppe er den lik for alle rader. Cellene flukter med de to
-  // kolonneparene, så teksten står rett over feltene den gjelder.
+  // Kolonneteksten hører hjemme HER, ikke i tabellhodet: hva de to
+  // portkolonnene er, avhenger av objektgruppen — normal og avvik for
+  // veksler, pålagt og avlagt for sperrer. Der parene varierer fra rad
+  // til rad står det tomt, og radetiketten sier det i stedet.
   const G = GRUPPER[gi];
-  const kap = (tekst, ut) => !tekst ? `<td colspan="3"></td>`
-    : `<td colspan="3" class="grpkol ${ut ? "retn-ut" : "retn-inn"}">` +
-      `${ut ? tekst + " &rarr;" : "&larr; " + tekst}</td>`;
-  tr.innerHTML = `<td colspan="3">
+  const kap = tekst => tekst
+    ? `<td colspan="3" class="grpkol">${tekst}</td>`
+    : `<td colspan="3"></td>`;
+  tr.innerHTML = `<td colspan="2">
     <span style="cursor:pointer" onclick="grpToggle(${gi})">
       <span class="grp-pil">▾</span> <b>${G.navn}</b>
       <span class="hint grp-tall"></span></span>
     <button class="mini" style="margin-left:10px"
             onclick="grpAdd(${gi})">+ ny</button></td>
-    ${G.bindNoytral ? `<td colspan="3" class="grpkol">${G.bind}</td>`
-                    : kap(G.bind, !hovedErInngang(G.typer[0]))}
-    ${panelOk(G.typer[0])
-        ? kap(G.panel, true)
-        : `<td colspan="3" class="grpkol dim">${G.panel}</td>`}
+    ${kap(G.venstre)}${kap(G.hoyre)}
     <td></td>`;
   return tr;
 }
@@ -668,19 +747,17 @@ function portKart() {
     if (!fn) continue;
     const type = fn.querySelector(".f-type").value;
     const st = SIGNALTYPER[type];
-    for (const pre of ["a", "p", "s", "t"]) {
+    for (const pre of ["s", "t"]) {
       const nd = tr.querySelector("." + pre + "-node");
       if (!nd || nd.disabled || !nd.value) continue;
       const i2c = tr.querySelector("." + pre + "-i2c").value;
       const pc = tr.querySelector("." + pre + "-port");
       const port = parseInt(pc.value) || 0;
-      const sted = pre === "a" ? roller(type)[0]
-                 : pre === "p" ? "panel"
-                 : pre === "s" ? (tr.dataset.sted || "")
+      const sted = pre === "s" ? (tr.dataset.sted || "")
                                : (tr.dataset.sted2 || "");
       const n = (st && (sted === "anlegg" || sted === "panel"))
                   ? (st.lamper || 1) : 1;
-      const inn = pre === "a" ? hovedErInngang(type) : erInngang(sted);
+      const inn = bindErInngang(type, sted);
       for (let k = 0; k < n; k++) {
         const nkl = nd.value + "|" + i2c + "|" + (port + k);
         if (!kart.has(nkl)) kart.set(nkl, []);
@@ -777,7 +854,6 @@ function grpOppdater() {
         [...tr.querySelectorAll("input,select")]
           .map(e => (e.value || "")).join(" ").toLowerCase()
           .includes(HALFILTER);
-      const p = radPorter(tr);
       // Med «bare bundne» skjules objekter uten en eneste binding —
       // hovedradens egne OG underradenes, som telles i sammendraget.
       const sum = radSumTotal(tr);
@@ -788,62 +864,55 @@ function grpOppdater() {
       // Sammendrag i stedet for portceller når raden er sammenlagt
       const pil = tr.querySelector(".rad-pil");
       if (pil) pil.textContent = radAapen ? "▾" : "▸";
-      const sumCelle = tr.querySelector(".bindsum");
-      if (sumCelle) {
-        sumCelle.style.display = radAapen ? "none" : "";
-        sumCelle.textContent = sum.tot
+      // Hovedraden viser det SAMME enten objektet er foldet ut eller
+      // ikke — den skal ikke skifte form under fingeren på den som
+      // klikker. Portene ligger på underradene.
+      const ps = tr.querySelector(".portsum");
+      if (ps) {
+        ps.textContent = sum.tot
           ? `${sum.satt} av ${sum.tot} porter bundet`
           : "ingen porter";
-        sumCelle.className = "bindsum" + (sum.satt ? " harbind" : "");
+        ps.className = "portsum" + (sum.satt ? " harbind" : "");
       }
-      for (const td of tr.querySelectorAll("td.pc"))
-        td.style.display = radAapen ? "" : "none";
-      const xf = tr.querySelector(".f-extra .xfull");
-      const xs = tr.querySelector(".f-extra .xsum");
-      if (xf) xf.style.display = radAapen ? "" : "none";
-      if (xs) xs.style.display = radAapen ? "none" : "";
+      continue;
+    }
+    // Luftraden hører til objektet som helhet: den skal stå der
+    // objektet vises, foldet ut eller ikke.
+    if (tr.classList.contains("objluft")) {
+      tr.style.display = radVist ? "" : "none";
       continue;
     }
     // underrad: synlig bare når hovedraden er det OG utfoldet
     let vis = radVist && radAapen;
-    if (vis && BARE_BUNDNE) vis = radPorter(tr).satt > 0;
+    // Egenskapslinjen er ikke en portlinje: den skjules bare når typen
+    // ikke HAR egenskaper, og filtreres ikke bort av «bare bundne».
+    if (tr.classList.contains("attrrow")) vis = vis && tr.dataset.tom !== "1";
+    else if (vis && BARE_BUNDNE) vis = radPorter(tr).satt > 0;
     tr.style.display = vis ? "" : "none";
   }
   GRUPPER.forEach((g, i) => {
     const h = grpHeader(i);
     if (h) h.querySelector(".grp-tall").textContent = "(" + (tall[i] || 0) + ")";
   });
-  tregrener();
+  objektRammer();
   portMerk();
 }
-// Grenglyfene. «Siste i gruppen» må være siste SYNLIGE — ellers henger
-// grenen i løse luften når et filter skjuler halen av en gruppe.
-function tregrener() {
+// Hvert objekt tegnes som ÉN ramme rundt identitetslinjen og linjene
+// under — samme form som en celle på Kabling-siden. Rammen må lukkes
+// på den siste SYNLIGE linjen: filteret, «bare bundne» og sammenlagte
+// objekter endrer hvilken det er, så den kan ikke merkes én gang ved
+// bygging. (Erstattet grenglyfene — de sa det samme som rammen sier
+// tydeligere, og gjorde hver linje 15 px smalere.)
+function objektRammer() {
   const rader = [...document.querySelectorAll("#tbl tbody tr")]
                   .filter(tr => tr.style.display !== "none");
+  for (const tr of rader) tr.classList.remove("obj-sist");
   for (let i = 0; i < rader.length; i++) {
-    const tr = rader[i];
-    if (tr.classList.contains("grphead")) continue;
-    const gren = tr.querySelector(".tregren");
-    if (!gren) continue;
-    if (tr.classList.contains("fnrow")) {
-      // siste objekt i gruppen? (neste synlige er gruppeslutt)
-      let j = i + 1;
-      while (j < rader.length && rader[j].classList.contains("subrow")) j++;
-      const sist = j >= rader.length || rader[j].classList.contains("grphead");
-      gren.textContent = sist ? "└─" : "├─";
-    } else {
-      // underrad: fortsettelsesstrek hvis objektet ikke var siste
-      const foreldreSist =
-        [...document.querySelectorAll("#tbl tbody tr")]
-          .slice(0, [...document.querySelectorAll("#tbl tbody tr")].indexOf(tr))
-          .reverse().find(r => r.classList.contains("fnrow"));
-      const p = foreldreSist && foreldreSist.querySelector(".tregren");
-      const sisteUnder = !(rader[i + 1] &&
-                           rader[i + 1].classList.contains("subrow"));
-      gren.textContent = (p && p.textContent === "└─" ? "  " : "│ ") +
-                         (sisteUnder ? " └─" : " ├─");
-    }
+    if (!rader[i].classList.contains("fnrow")) continue;
+    let j = i;
+    while (j + 1 < rader.length && rader[j + 1].classList.contains("subrow"))
+      j++;
+    rader[j].classList.add("obj-sist");
   }
 }
 
@@ -858,25 +927,36 @@ function visTegn(a) {
 }
 
 function rolleChanged(sel) {   // sporfelt-rolle: vis/skjul tilleggsvalg
-  const tr = sel.closest("tr");
-  tr.dataset.rolle = sel.value;
-  const side = tr.querySelector(".f-side");
+  const tr = eierRad(sel);
+  tr.dataset.rolle = rolleVerdi(sel.value);
+  // Valget ER linjeblokk-flagget: blokksporfelt = med blokk,
+  // linjefelt = togmelding. Andre roller rører det ikke.
+  if (sel.value === "blokksporfelt") tr.dataset.lblokk = "1";
+  else if (sel.value === "linjefelt") tr.dataset.lblokk = "0";
+  const side = felt(tr, ".f-side");
   tr.dataset.side = side ? side.value : (tr.dataset.side || "");
-  const lin = tr.querySelector(".f-linje");
+  const lin = felt(tr, ".f-linje");
   tr.dataset.linje = lin ? lin.value : (tr.dataset.linje || "");
   // Avkryssingen tegnes på nytt fra datasettet, så en ulagret
   // endring må speiles hit først — ellers spretter den tilbake
   // hver gang rollen endres.
-  const lb = tr.querySelector(".f-lblokk");
-  if (lb) tr.dataset.lblokk = lb.checked ? "1" : "0";
-  // rollespesifikke underrader bygges på nytt (sensor-radene beholdes)
+  // Rollen bestemmer hvilke bindingslinjer feltet HAR — meldefeltet
+  // har ytre/indre sensorer, togsporet har togveistillere. Les det som
+  // står, riv alle linjene, og bygg dem på nytt fra verdiene: da
+  // overlever alt som fortsatt har en plass. Det som ikke har det
+  // (togveistilleren når feltet blir meldefelt) faller bort — som før,
+  // men nå uten å kunne havne i feil slot.
+  const beholdt = [];
   let n = tr.nextElementSibling;
   while (n && n.classList.contains("subrow")) {
     const neste = n.nextElementSibling;
-    if (n.dataset.sted !== "sensor") n.remove();
+    if (!n.classList.contains("attrrow")) {
+      beholdt.push(...lesSubrad(n));
+      n.remove();
+    }
     n = neste;
   }
-  byggSubrader(tr, "sporfelt", []);
+  byggSubrader(tr, "sporfelt", beholdt);
   decorateRow(tr);
 }
 // Speiler masterens utledning i UI-et: vekselen hører til den enden
@@ -888,9 +968,8 @@ function utledetEnde(vLitra) {
   const side = {};   // linjefelt-litra -> v/h fra Objekter-tabellen
   for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     if (tr.querySelector(".f-type").value !== "sporfelt") continue;
-    const r = tr.querySelector(".f-rolle");
-    if (!r || r.value !== "linjefelt") continue;
-    const s = tr.querySelector(".f-side");
+    if (radRolle(tr) !== "linjefelt") continue;
+    const s = felt(tr, ".f-side");
     const id = tr.querySelector(".f-id").value.trim();
     if (id && s && s.value) side[id] = s.value;
   }
@@ -909,8 +988,7 @@ function fillLinjeSel(sel) {   // nedtrekk over linjefelt-litraer
   let out = `<option value="">—</option>`;
   for (const tr of document.querySelectorAll("#tbl tbody tr.fnrow")) {
     if (tr.querySelector(".f-type").value !== "sporfelt") continue;
-    const r = tr.querySelector(".f-rolle");
-    if (!r || r.value !== "linjefelt") continue;
+    if (radRolle(tr) !== "linjefelt") continue;
     const id = tr.querySelector(".f-id").value.trim();
     if (id) out += opt(id, id, cur);
   }
@@ -1007,98 +1085,169 @@ function fillTopoSel(sel) {
   sel.innerHTML = out;
   sel.value = cur;
 }
+// Bindingene som står på ÉN bindingslinje — den ene eller begge
+// halvdelene. Både lagringen (collect) og rollebytte på et sporfelt
+// leser linjene med denne, så de kan ikke komme i utakt om formen
+// endres igjen.
+function lesSubrad(tr) {
+  const ut = [];
+  for (const [pre, nkl] of [["s", "sted"], ["t", "sted2"]]) {
+    const nd = tr.querySelector("." + pre + "-node");
+    if (!nd || !nd.value || !tr.dataset[nkl]) continue;
+    ut.push({sted: tr.dataset[nkl], node: nd.value,
+             i2c: tr.querySelector("." + pre + "-i2c").value,
+             port: parseInt(tr.querySelector("." + pre + "-port").value || "0")});
+  }
+  return ut;
+}
 function typeChanged(sel) {   // brukerbytte: bygg underrader på nytt
   const tr = sel.closest("tr");
-  while (tr.nextElementSibling?.classList.contains("subrow"))
-    tr.nextElementSibling.remove();
+  // Egenskapslinjen blir stående — decorateRow fyller den på nytt for
+  // den nye typen. Bindingslinjene rives: en annen type har andre
+  // bindingssteder, og et sted som ikke finnes lenger skal ikke bæres
+  // videre i det stille.
+  let n = tr.nextElementSibling;
+  while (n && n.classList.contains("subrow")) {
+    const neste = n.nextElementSibling;
+    if (!n.classList.contains("attrrow")) n.remove();
+    n = neste;
+  }
   byggSubrader(tr, sel.value, []);
   decorateRow(tr);
 }
-// Underradene per type. Veksler kompakt på tre linjer: motorutgang
-// avvik, så én linje per stilling med stillingssensoren i bindings-
-// kolonnene og kontrollampen i panelkolonnene (ut-normal er hovedraden).
+// ---- bindingsradene per objekttype ----
+// ÉN rad per FUNKSJON, med de to halvdelene som faktisk hører sammen:
+// normal og avvik, ute og på apparatet, ytre og indre.
+//
+// Før lå den ene bindingen på identitetslinjen og resten ble paret to
+// og to i den rekkefølgen de tilfeldigvis var skrevet — vekselens
+// drivutgang var delt over to rader, og ut-avvik delte linje med en
+// stiller den ikke hadde noe med å gjøre. Derfor står tabellen HER,
+// som data: paringen er en egenskap ved objekttypen, ikke ved
+// rekkefølgen i en funksjon.
+//
+// «par» navngir halvdelene der de ikke er gruppens (normal/avvik);
+// da står det i radetiketten i stedet for å måtte gjettes.
+function bindingsrader(t, rolle) {
+  if (isSkift(t))
+    return [{navn: "signallamper", par: "ute · apparat",
+             a: "anlegg", b: "panel"},
+            {navn: "stiller", a: "stiller"},
+            {navn: "middelkontrollampe", a: "middelkontrollampe"}];
+  if (isSignal(t))
+    return [{navn: "signallamper", par: "ute · apparat",
+             a: "anlegg", b: "panel"}];
+  if (isVeksel(t))
+    return [{navn: "drivutgang", a: "ut-normal", b: "ut-avvik"},
+            {navn: "stillingssensor", a: "sensor-normal",
+             b: "sensor-avvik"},
+            {navn: "kontrollampe", a: "panel-normal", b: "panel-avvik"},
+            {navn: "apparatstiller", a: "stiller-normal",
+             b: "stiller-avvik"},
+            {navn: "lokalbetjening", a: "lokal-normal", b: "lokal-avvik"},
+            {navn: "lokalstillerlampe", a: "lokalstillerlampe"}];
+  if (isManuell(t))
+    return [{navn: "drivutgang", a: "ut-normal", b: "ut-avvik"},
+            {navn: "betjening", a: "lokal-normal", b: "lokal-avvik"}];
+  if (isSperre(t))
+    return [{navn: "drivutgang", a: "ut-paalagt", b: "ut-avlagt"},
+            {navn: "kontroll pålagt", a: "sensor-paalagt"},
+            {navn: "betjening", a: "lokal-paalagt", b: "lokal-avlagt"}];
+  if (t === "sporfelt") {
+    // Meldefeltet har IKKE den generiske sensoren — sensor-ytre og
+    // sensor-indre ER sensorene, og rekkefølgen gir togretningen.
+    if (rolle === "varselfelt")
+      return [{navn: "sporfelt", par: "ytre · indre",
+               a: "sensor-ytre", b: "sensor-indre"},
+              {navn: "kvitteringsknapp", a: "kvittering"}];
+    const r = [{navn: "sporfelt", par: "ute · på apparatet",
+                a: "sensor", b: "panel"}];
+    if (rolle === "togspor" || rolle === "linjefelt")
+      r.push({navn: "togveistiller", par: "venstre · høyre",
+              a: "stiller-v", b: "stiller-h"});
+    if (rolle === "linjefelt")
+      r.push({navn: "togveislampe", a: "togveislampe"});
+    return r;
+  }
+  if (t === "samlelaas")
+    return [{navn: "frigittlampe", par: "ved låsen · apparat",
+             a: "anlegg", b: "panel"},
+            {navn: "frigivningsstiller", a: "stiller"},
+            {navn: "kvitteringsknapp", a: "kvittering"}];
+  if (t === "rigel")
+    return [{navn: "frigittlampe", par: "ved objektene · apparat",
+             a: "anlegg", b: "panel"},
+            {navn: "frigivningsstiller", a: "stiller"}];
+  if (t === "trykknapp" || t === "bryter")
+    return [{navn: t, par: "inngang · lampe", a: "anlegg", b: "panel"}];
+  if (t === "klokke") return [{navn: "klokke", a: "anlegg"}];
+  if (t === "amperemeter") return [{navn: "instrument", a: "anlegg"}];
+  if (t === "inngang") return [{navn: "reservert inngang", a: "anlegg"}];
+  return [{navn: "reservert utgang", a: "anlegg"}];
+}
+// Luft mellom objektene. Rammen tegnes av kanter på cellene, og et
+// <tr> kan ikke ha margin — border-spacing ville lagt like mye luft
+// MELLOM linjene inne i et objekt og revet rammen fra hverandre. En
+// tom rad etter siste linje er den eneste måten å få avstanden til å
+// gjelde objektet som helhet.
+//
+// Den ligger ETTER objektet, så addSubRow (som setter nye linjer inn
+// etter den siste underraden) treffer riktig plass av seg selv.
+function nyLuftRad(tr) {
+  const l = document.createElement("tr");
+  l.className = "objluft";
+  l.innerHTML = `<td colspan="9"></td>`;
+  tr.insertAdjacentElement("afterend", l);
+  return l;
+}
+// Egenskapslinjen. Tom for typer uten egenskaper — da skjules den av
+// grpOppdater, så det ikke går an å folde ut en tom linje.
+function nyAttrRad(tr) {
+  const a = document.createElement("tr");
+  a.className = "subrow attrrow";
+  // ÉN celle over hele bredden: egenskapene er få og korte, og delt
+  // over to celler ble de presset inn i en kolonne de ikke passet i.
+  a.innerHTML = `<td colspan="9" class="attrcell">` +
+    `<span class="bsym">\u2699</span>` +
+    `<span class="bnavn">egenskaper</span>` +
+    `<span class="xfull"></span></td>`;
+  tr.insertAdjacentElement("afterend", a);
+  return a;
+}
 function byggSubrader(tr, t, binds) {
-  const finn = sted => (binds || []).find(b => b.sted === sted);
-  // BETJENING: ett par innganger per betjeningssted, navngitt etter
-  // RETNING. Begge bundet = flankestyrt (to trykknapper ELLER en
-  // vippebryter). Bare én bundet = enpolet bryter, lest på nivå.
-  // Ingen modus å velge — koblingen forteller selv hva den er.
-  if (isVeksel(t)) {
-    addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "stiller-normal", finn("stiller-normal"));
-    addSubRow(tr, "stiller-avvik", finn("stiller-avvik"), false,
-              "lokal-normal", finn("lokal-normal"));
-    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false,
-              "lokalstillerlampe", finn("lokalstillerlampe"));
-    addSubRow(tr, "sensor-normal", finn("sensor-normal"), false,
-              "panel-normal", finn("panel-normal"));
-    addSubRow(tr, "sensor-avvik", finn("sensor-avvik"), false,
-              "panel-avvik", finn("panel-avvik"));
-    return;
-  }
-  // Manuellveksel og sporsperre betjenes LOKALT, ute ved objektet —
-  // de har ikke noe stillerapparat å betjenes fra. Derfor lokalparet,
-  // ikke apparatparet, og ingen Lok-frigivning å skille på.
-  if (isManuell(t)) {
-    addSubRow(tr, "ut-avvik", finn("ut-avvik"), false,
-              "lokal-normal", finn("lokal-normal"));
-    addSubRow(tr, "lokal-avvik", finn("lokal-avvik"), false);
-    return;
-  }
-  if (isSperre(t)) {
-    // Sperren har sine EGNE bindingsnavn: normalstillingen er pålagt.
-    // Master kjenner dem som aliaser for de samme stedene, så konfigen
-    // sier det den er i stedet for å bli oversatt i etiketten.
-    addSubRow(tr, "ut-avlagt", finn("ut-avlagt"), false,
-              "lokal-paalagt", finn("lokal-paalagt"));
-    addSubRow(tr, "lokal-avlagt", finn("lokal-avlagt"), false,
-              "sensor-paalagt", finn("sensor-paalagt"));
-    return;
-  }
-  if (isSkift(t)) {   // betjeningsbryter på apparatet
-    addSubRow(tr, "stiller", finn("stiller"), false);
-    // middelkontrollampen sitter på skiftesignalets mast: hvitt
-    // blinklys når innkjørende tog i motsatt ende er klar av middel
-    addSubRow(tr, "middelkontrollampe", finn("middelkontrollampe"), false);
-    return;
-  }
-  if (t === "samlelaas") {
-    // stiller = vedvarende frigivningsstiller; kvittering = momentan
-    // trykknapp (apparatnøkkelen, selvsperrende); sensor = nøkkel-
-    // kontakten (aktiv lav = nøkkelen i låsen). Hovedraden (anlegg)
-    // er frigitt-lampen ved låsen, panelkolonnene kontrollampen på
-    // apparatet (tent = nøkkelen i kontroll, Nelaug-regelen).
-    addSubRow(tr, "stiller", finn("stiller"), false);
-    addSubRow(tr, "kvittering", finn("kvittering"), false);
-    addSubRow(tr, "sensor", finn("sensor"), false);
-    return;
-  }
-  if (t === "rigel") {
-    // stiller = den blå frigivningsstilleren. Hovedraden (anlegg) er
-    // frigittlampen ved objektene, panelkolonnene kontrollampen —
-    // objektenes egen kontroll leses fra DERES sensorer, så rigelen
-    // har ingen egen sensorbinding.
-    addSubRow(tr, "stiller", finn("stiller"), false);
-    return;
-  }
-  if (t === "sporfelt") {   // rollestyrt: stillere / kvitteringsknapp
-    const rolle = tr.dataset.rolle || "";
-    if (rolle === "varselfelt") {
-      addSubRow(tr, "kvittering", finn("kvittering"), false);
-      // to sensorer gir togretning: ytre (lengst fra stasjonen)
-      // først = innkommende tog -> melding; indre først = utgående
-      addSubRow(tr, "sensor-ytre", finn("sensor-ytre"), false,
-                "sensor-indre", finn("sensor-indre"));
-    } else if (rolle === "togspor" || rolle === "linjefelt") {
-      addSubRow(tr, "stiller-v", finn("stiller-v"), false,
-                "stiller-h", finn("stiller-h"));
-      if (rolle === "linjefelt")   // blå lampe: tent når togvei er forriglet
-        addSubRow(tr, "togveislampe", finn("togveislampe"), false);
+  const rader = bindingsrader(t, tr.dataset.rolle || "");
+  const kjente = new Set();
+  for (const r of rader) { kjente.add(r.a); if (r.b) kjente.add(r.b); }
+  const brukt = new Set();
+  const finn = sted => {
+    const b = (binds || []).find(x => x.sted === sted && !brukt.has(x));
+    if (b) brukt.add(b);
+    return b;
+  };
+  for (let k = 0; k < rader.length; k++) {
+    const r = rader[k];
+    let a = finn(r.a);
+    // Håndredigerte og eldgamle konfiger kan mangle «sted» helt. En
+    // slik binding hørte til typens FØRSTE plass — legg den der i
+    // stedet for å la den falle ut i stillhet ved neste lagring.
+    // Bare TOMT sted fanges: serverens migrate() normaliserer navnene
+    // før de når hit, så en ukjent sted-verdi er en binding som ikke
+    // hører til typen, og den skal ikke tvinges inn i første ledige
+    // plass (rollebytte på et sporfelt gjorde nettopp det).
+    if (!a && k === 0) {
+      a = (binds || []).find(x => !x.sted && !brukt.has(x));
+      if (a) brukt.add(a);
     }
-    return;   // felt uten rolle (vekselfelt o.l.): ingen betjeningsrader
+    addSubRow(tr, r.a, a, false, r.b, r.b ? finn(r.b) : null,
+              r.navn, r.par);
   }
-  for (const sted of roller(t).slice(1))
-    addSubRow(tr, sted, finn(sted), false);
+  // Et sporavsnitt kan være bygget av FLERE sporfelt — én rad per
+  // sporfelt utover det første (logisk ELLER i master). «sensor» er
+  // bindingsstedets navn i konfigen; det som kobles der ER sporfeltet.
+  if (t === "sporfelt")
+    for (const b of (binds || []))
+      if (b.sted === "sensor" && !brukt.has(b))
+        addSubRow(tr, "sensor", b, true, null, null, "ekstra sporfelt");
 }
 function delFn(btn) {
   const tr = btn.closest("tr");
@@ -1107,6 +1256,8 @@ function delFn(btn) {
                `(Blir permanent først ved «Lagre og publiser».)`)) return;
   while (tr.nextElementSibling?.classList.contains("subrow"))
     tr.nextElementSibling.remove();
+  if (tr.nextElementSibling?.classList.contains("objluft"))
+    tr.nextElementSibling.remove();
   tr.remove();
   grpOppdater();
 }
@@ -1114,61 +1265,44 @@ function collect() {
   const out = [];
   for (const tr of document.querySelectorAll("#tbl tbody tr")) {
     if (tr.classList.contains("grphead")) continue;
+    if (tr.classList.contains("objluft")) continue;
     if (tr.classList.contains("subrow")) {
-      const nodeVal = tr.querySelector(".s-node").value;
-      if (nodeVal) out[out.length-1]?.bindinger.push({sted: tr.dataset.sted,
-        node: nodeVal,
-        i2c: tr.querySelector(".s-i2c").value,
-        port: parseInt(tr.querySelector(".s-port").value || "0")});
-      const n2 = tr.querySelector(".t-node");   // binding nr. 2 på linjen
-      if (n2 && n2.value) out[out.length-1]?.bindinger.push({
-        sted: tr.dataset.sted2, node: n2.value,
-        i2c: tr.querySelector(".t-i2c").value,
-        port: parseInt(tr.querySelector(".t-port").value || "0")});
+      const eier = out[out.length - 1];
+      if (eier) eier.bindinger.push(...lesSubrad(tr));
       continue;
     }
     const t = tr.querySelector(".f-type").value;
-    const binds = [];
-    const mainNode = tr.querySelector(".a-node").value;
-    if (mainNode) binds.push({sted: roller(t)[0],
-      node: mainNode,
-      i2c: tr.querySelector(".a-i2c").value,
-      port: parseInt(tr.querySelector(".a-port").value || "0")});
-    if (!tr.querySelector(".p-node").disabled && tr.querySelector(".p-node").value) {
-      binds.push({sted:"panel",
-        node: tr.querySelector(".p-node").value,
-        i2c: tr.querySelector(".p-i2c").value,
-        port: parseInt(tr.querySelector(".p-port").value || "0")});
-    }
+    // Hovedraden har ingen bindinger — de ligger alle på underradene
+    // over, og samles inn i grenen øverst i løkken.
     const fn = {id: tr.querySelector(".f-id").value.trim(), type: t,
-                bindinger: binds};
+                bindinger: []};
     if (tr.dataset.orgId && tr.dataset.orgId !== fn.id)
       fn.gammel_id = tr.dataset.orgId;   // referansene skrives om
-    const montert = tr.querySelector(".f-montert");
+    const montert = felt(tr, ".f-montert");
     if (montert && montert.value) fn.montert_med = montert.value;
-    const varsler = tr.querySelector(".f-varsler");
+    const varsler = felt(tr, ".f-varsler");
     if (varsler && varsler.value) fn.varsler_om = varsler.value;
-    const rolle = tr.querySelector(".f-rolle");
-    if (rolle) fn.rolle = rolle.value;
-    const side = tr.querySelector(".f-side");
+    const rolle = felt(tr, ".f-rolle");
+    if (rolle) fn.rolle = rolleVerdi(rolle.value);
+    const side = felt(tr, ".f-side");
     if (side && side.value) fn.side = side.value;
     // Skriv linjeblokk bare når den er AV: true er standarden, og en
-    // konfig full av "linjeblokk": true er bare støy. Er avkryssingen
-    // ikke tegnet (raden er ikke dekorert som linjefelt), faller vi
-    // tilbake på det som ble lastet — samme prinsipp som skift_sporveksler.
-    const lb = tr.querySelector(".f-lblokk");
-    if (lb) { if (!lb.checked) fn.linjeblokk = false; }
-    else if (tr.dataset.lblokk === "0" &&
-             (rolle ? rolle.value : "") === "linjefelt") fn.linjeblokk = false;
-    const lin = tr.querySelector(".f-linje");
+    // konfig full av "linjeblokk": true er bare støy. Flagget følger
+    // rollevalget — «linjefelt» betyr togmelding, «blokksporfelt»
+    // betyr blokk — og gjelder bare feltet mot linjen.
+    if (rolle && rolleVerdi(rolle.value) === "linjefelt") {
+      if (rolle.value !== "blokksporfelt") fn.linjeblokk = false;
+    } else if (tr.dataset.lblokk === "0" &&
+               tr.dataset.rolle === "linjefelt") fn.linjeblokk = false;
+    const lin = felt(tr, ".f-linje");
     if (lin && lin.value) fn.linjefelt = lin.value;
-    const us = tr.querySelector(".f-utslag");
+    const us = felt(tr, ".f-utslag");
     if (us) fn.utslag = Math.max(0, Math.min(100,
         parseInt(us.value || "100") || 0));
-    const hk = tr.querySelector(".f-hakk");
+    const hk = felt(tr, ".f-hakk");
     if (hk) fn.hakk_hz = Math.max(10, Math.min(250,
         parseInt(hk.value || "50") || 50));
-    const du = tr.querySelector(".f-duty");
+    const du = felt(tr, ".f-duty");
     if (du) fn.hakk_duty = Math.max(10, Math.min(90,
         parseInt(du.value || "50") || 50));
     // Vekselvelgeren finnes bare på skiftesignalrader som ER dekorert.
@@ -1177,20 +1311,20 @@ function collect() {
     // vi tilbake på det som ble lastet: en rad som av en eller annen
     // grunn ikke rakk å bli dekorert skal ALDRI slette området i
     // stillhet. Det var nettopp slik skift_sporveksler forsvant.
-    if (isLaas(t) && tr.querySelector(".f-navn")) {
+    if (isLaas(t) && felt(tr, ".f-navn")) {
       // Dekorert låserad: avkryssingene (objekter i anlegget) +
       // fritekstfeltet (objekter utenfor anlegget) ER fasiten —
       // også når begge er tomme (området fjernet med vilje).
-      const valgte = [...tr.querySelectorAll(".f-skiftv:checked")]
+      const valgte = [...felter(tr, ".f-skiftv:checked")]
                    .map(c => c.value);
-      const frit = tr.querySelector(".f-omfrit");
+      const frit = felt(tr, ".f-omfrit");
       if (frit) for (const x of frit.value.split(/[,\s]+/)) {
         const v = x.trim();
         if (v && !valgte.includes(v)) valgte.push(v);
       }
       fn.omfatter = valgte;
-    } else if (tr.querySelector(".f-skiftv")) {
-      fn.skift_sporveksler = [...tr.querySelectorAll(".f-skiftv:checked")]
+    } else if (felt(tr, ".f-skiftv")) {
+      fn.skift_sporveksler = [...felter(tr, ".f-skiftv:checked")]
                            .map(c => c.value);
     } else {
       const lagret = JSON.parse(tr.dataset.skiftv || "[]");
@@ -1201,19 +1335,19 @@ function collect() {
     }
     // Sporplan-topologien (portmodellen) — dekorert rad er fasit,
     // udekoreret faller tilbake på det som ble lastet
-    for (const [kl, felt, ds] of [["f-spiss","spiss","spiss"],
+    for (const [kl, feltnavn, ds] of [["f-spiss","spiss","spiss"],
                                   ["f-plusstil","pluss_til","plusstil"],
                                   ["f-minustil","minus_til","minustil"],
                                   ["f-spisstil","spiss_til","spisstil"],
                                   ["f-avvikben","avvik_ben","avvikben"],
                                   ["f-liggeri","ligger_i","liggeri"]]) {
-      const e2 = tr.querySelector("." + kl);
+      const e2 = felt(tr, "." + kl);
       const v2 = e2 ? e2.value : tr.dataset[ds];
-      if (v2) fn[felt] = v2;
+      if (v2) fn[feltnavn] = v2;
     }
     // Låsegruppens navn — samme fall-tilbake-prinsipp: en udekoreret
     // rad skal aldri slette verdier i stillhet
-    const nv = tr.querySelector(".f-navn");
+    const nv = felt(tr, ".f-navn");
     if (nv) { if (nv.value.trim()) fn.navn = nv.value.trim(); }
     else if (tr.dataset.navn) fn.navn = tr.dataset.navn;
     out.push(fn);
@@ -1370,7 +1504,40 @@ async function kbLoad() {
       KBSKANN[(n2.mac || "").toLowerCase()] =
         {i2c: n2.i2c || [], online: !!n2.online};
   } catch (e) { /* offline Pi: fall tilbake på bundne brikker */ }
+  await kbInnHent();
   kbRender();
+  kbInnOppdater();
+}
+// LEVENDE INNGANGSVERDI. Master videresender nodenes inngangsbytes på
+// espnow/<mac>/in/<addr>, og Pi-en holder siste byte per brikke.
+// Nøkkelen er «<mac>/0xNN» — GPIO-pseudobrikken er 0x00.
+//
+// Sensorene er AKTIV LAV, som i masterens egen lesning: bit 0 betyr at
+// noe trekker porten ned — sporfeltet er belagt, knappen trykket,
+// tunga i kontroll. Merket i cellen viser nettopp det, ikke råbiten,
+// for det er den som betyr noe når man står med en multimeter.
+let KBINN = {};
+async function kbInnHent() {
+  try { KBINN = await (await fetch("/api/inputs")).json(); }
+  catch (e) { KBINN = {}; }
+}
+function kbInnOppdater() {
+  // BARE cellene: symbolforklaringen har sine egne prikker med fast
+  // tilstand, og de skal ikke nullstilles av en oppfriskning.
+  for (const e of document.querySelectorAll("#kb-rutenett .kb-celle .kb-inn")) {
+    const b = KBINN[e.dataset.k];
+    const p = Number(e.dataset.p);
+    e.classList.remove("kjent", "pa");
+    if (b === undefined || b === null) {
+      e.title = "ingen inngangsmelding fra noden";
+      continue;
+    }
+    const aktiv = ((b >> p) & 1) === 0;
+    e.classList.add("kjent");
+    if (aktiv) e.classList.add("pa");
+    e.title = aktiv ? "inngangen er AKTIV (porten trekkes lav)"
+                    : "inngangen hviler";
+  }
 }
 // Alle bindinger samlet per (node, brikke, port). En binding kan
 // dekke FLERE porter: signaler legger lampene på påfølgende kanaler
@@ -1385,8 +1552,13 @@ function kbKart(signaltyper) {
       if (!nd) continue;
       const n = (st && (b.sted === "anlegg" || b.sted === "panel"))
                   ? (st.lamper || 1) : 1;
-      const inn = erInngang(b.sted) ||
-                  (f.type === "inngang" && b.sted === "anlegg");
+      // Samme regel som Objekter-siden og masteren: «trykknapp»,
+      // «bryter» og «inngang» leses alle via stedet «anlegg», og det
+      // er TYPEN som sier at porten er en inngang. Sto det bare
+      // «inngang» her — som det gjorde — ble hver knapp og bryter på
+      // stillerapparatet farget som utgang, talt som ordrepunkt mot
+      // nodens 40-tak, og to knapper på samme port meldt som kollisjon.
+      const inn = bindErInngang(f.type, b.sted);
       if (!inn) ordrer[nd] = (ordrer[nd] || 0) + n;
       else if (b.i2c === "gpio") ordrer[nd] = (ordrer[nd] || 0) + 1;
       const p0 = parseInt(b.port) || 0;
@@ -1426,6 +1598,10 @@ const KB_KOL = 16;
 // og finnes i alle systemfonter.
 function portSymbol(sted, type) {
   if (sted === "anlegg" && SIGNAL_LAMPEFARGE[type]) return "\u25cf"; // ● lampe
+  // Samlelåsens og rigelens «anlegg» er frigittlampen ved låsen — en
+  // lampe, ikke en anonym utgang.
+  if (sted === "anlegg" && (type === "samlelaas" || type === "rigel"))
+    return "\u25cb";
   if (sted.startsWith("panel")) return "\u25cb";      // ○ kontrollampe
   if (sted === "lokalstillerlampe") return "\u25cb";  // ○ lampe ute
   if (sted === "togveislampe") return "\u25cb";
@@ -1526,13 +1702,22 @@ function kbRender() {
         const sym = konflikt ? "\u2715"
                              : portSymbol(x0.sted, x0.type);
         const symStil = farge ? ` style="color:${farge}"` : "";
+        // Porter som LESES får et levende merke i hjørnet. Bare de:
+        // en utgang har ingen verdi å melde, og en port som deles av
+        // inngang og utgang er uansett en kollisjon.
+        const macN = ((KBNODER[nd] || {}).mac || nd).toLowerCase();
+        const innMerke = her.every(y => y.inn)
+          ? `<span class="kb-inn" data-k="${attr(macN)}/` +
+            `${a === "gpio" ? "0x00" : attr(a)}" data-p="${p}"></span>`
+          : "";
         h += `<div class="kb-celle ${kls}"` +
              ` title="port ${p}: ${attr(tips)}"` +
              ` onclick="kbGaaTil('${attr(x0.litra)}',` +
              `'${attr(x0.type)}')">` +
              `<span class="kb-nr">${p}</span>` +
              `<span class="kb-sym"${symStil}>${sym}</span>` +
-             `<span class="kb-lit">${attr(x0.litra)}</span></div>`;
+             `<span class="kb-lit">${attr(x0.litra)}</span>` +
+             innMerke + `</div>`;
       }
       h += `</div>`;
     }
@@ -1542,7 +1727,7 @@ function kbRender() {
   // er hele poenget med visningen.
   const sym = [
     ["\u25cf", "lampe (i lampens egen farge)"],
-    ["\u25cb", "kontrollampe"],
+    ["\u25cb", "kontrollampe eller frigittlampe"],
     ["\u21c4", "drivutgang — motor"],
     ["\u25ce", "sensor"],
     ["\u25a3", "betjening — stiller eller trykknapp"],
@@ -1563,6 +1748,14 @@ function kbRender() {
     sym.map(([t, f]) =>
       `<span><span class="kb-symnok">${t}</span> ${f}</span>`).join("") +
     `</div>` +
+    `<div class="kb-nokkelrad"><b>Inngang</b>` +
+    `<span><span class="kb-inn kb-innnok"></span> ingen melding` +
+    `</span>` +
+    `<span><span class="kb-inn kb-innnok kjent"></span> hviler</span>` +
+    `<span><span class="kb-inn kb-innnok kjent pa"></span> aktiv ` +
+    `(porten trekkes lav)</span>` +
+    `<span class="kb-dim">merket står i hjørnet av portene som leses` +
+    `</span></div>` +
     `<div class="kb-nokkelrad"><b>Form</b>` +
     `<span>sammenhengende fliser = ett signals lampespenn, ` +
     `én kanal per lampe</span>` +
@@ -1614,43 +1807,6 @@ function showView(v, btn) {
   if (v === "kabling") kbLoad();
 }
 window.addEventListener("hashchange", () => showView(faneFraHash()));
-// litra-etikett per (mac, i2c-adresse, port) fra HAL-tabellen
-// GPIO-porter bundet som INNGANG på en gitt node — speiler masterens
-// erInngangsBinding: sensor*/stiller*/kvittering, PLUSS "anlegg" på
-// inngangstypene (trykknapp/bryter/inngang leses via anlegg-bindingen)
-const INNGANGSTYPER = new Set(["trykknapp", "bryter", "inngang"]);
-function erInnBinding(ftype, sted) {
-  return sted.startsWith("sensor") || sted.startsWith("stiller") ||
-         sted === "kvittering" ||
-         (sted === "anlegg" && INNGANGSTYPER.has(ftype));
-}
-function gpioInnPorter(hal, mac) {
-  const inn = new Set();
-  for (const f of hal.functions || [])
-    for (const b of f.bindinger || []) {
-      const bmac = (NODER[b.node] && NODER[b.node].mac) || b.node;
-      if (bmac === mac && b.i2c === "gpio" && erInnBinding(f.type, b.sted))
-        inn.add(Number(b.port));
-    }
-  return inn;
-}
-function portLabels(hal, mac, addr) {
-  const lbl = {};
-  for (const f of hal.functions || []) {
-    for (const b of f.bindinger || []) {
-      const bmac = (NODER[b.node] && NODER[b.node].mac) || b.node;
-      if (bmac !== mac || b.i2c !== addr) continue;
-      const sig = SIGNALTYPER[f.type];
-      if (sig && (b.sted === "anlegg" || b.sted === "panel")) {
-        for (let k = 0; k < sig.lamper; k++)
-          lbl[b.port + k] = `${f.id} (${b.sted}, lampe ${k + 1})`;
-      } else {
-        lbl[b.port] = `${f.id} (${b.sted})`;
-      }
-    }
-  }
-  return lbl;
-}
 function fmtSek(s) {
   if (s == null) return "?";
   const d = Math.floor(s / 86400), t = Math.floor(s % 86400 / 3600),
@@ -1660,10 +1816,9 @@ function fmtSek(s) {
   return m + "m";
 }
 async function renderNoder() {
-  const [nodes, hal, inputs, master, lt, pi, an, ota] = await Promise.all([
+  const [nodes, hal, master, lt, pi, an, ota] = await Promise.all([
     (await fetch("/api/nodes")).json(),
     (await fetch("/api/hal")).json(),
-    (await fetch("/api/inputs")).json(),
     (await fetch("/api/master")).json(),
     (await fetch("/api/lamptest")).json(),
     (await fetch("/api/pi")).json(),
@@ -1711,13 +1866,6 @@ async function renderNoder() {
                style="white-space:nowrap;flex:0 0 auto;cursor:pointer"
                title="PÅ: uparede noder adopteres ved første kontakt. Skru AV på treff.">
           adopter nye noder</label>
-        <input type="number" id="anlegg-hjelp" min="0" max="300"
-               style="width:64px;flex:0 0 auto;margin:0 0 0 10px"
-               value="${an.hjelpeutlosning_s}">
-        <label for="anlegg-hjelp" class="hint"
-               style="white-space:nowrap;flex:0 0 auto;cursor:pointer"
-               title="Hjelpeutløsningens tidsrelé i sekunder. Etter trinn 2 (stillerne FRA hverandre) blir togveien stående låst til tiden er ute, med blinkende togveislampe. Forbildet har ca. 90 s. 0 = av, altså momentan utløsning — praktisk under idriftsettelse, men sett den tilbake før anlegget tas i bruk.">
-          s hjelpeutløsning</label>
         <input type="checkbox" id="anlegg-dekning"
                style="width:auto;flex:0 0 auto;margin:0 0 0 10px"
                ${an.dekningsstilling ? "checked" : ""}>
@@ -1743,6 +1891,25 @@ async function renderNoder() {
                 onclick="saveAnlegg()">Lagre</button>
         <span class="hint" style="flex:1 1 220px">${st}</span>
       </div>
+      <div class="bar" style="margin:0 0 4px;flex-wrap:wrap">
+        <input style="width:150px;flex:0 0 auto" id="anlegg-navn"
+               maxlength="24" value="${attr(an.navn)}"
+               placeholder="stasjonsnavn"
+               title="Stasjonsnavnet slik det står over stillerapparatet — vises midtstilt øverst på /panel. Tomt: anleggs-IDen brukes.">
+        <input style="width:150px;flex:0 0 auto" id="anlegg-nabo-v"
+               maxlength="24" value="${attr(an.nabo_venstre)}"
+               placeholder="nabo venstre"
+               title="Nabostasjonen i VENSTRE ende av sporplanen. Vises øverst til venstre på /panel, på linje med stasjonsnavnet.">
+        <input style="width:150px;flex:0 0 auto" id="anlegg-nabo-h"
+               maxlength="24" value="${attr(an.nabo_hoyre)}"
+               placeholder="nabo høyre"
+               title="Nabostasjonen i HØYRE ende av sporplanen. Vises øverst til høyre på /panel, på linje med stasjonsnavnet.">
+      </div>
+      <p class="hint">Navnene står over apparatet på
+      <a href="/panel" target="_blank">/panel</a>: stasjonen midtstilt,
+      nabostasjonene i hver sin ende av linjen. De er ren skilting —
+      ingenting i forriglingen leser dem. Venstre og høyre er slik
+      sporplanen tegnes, samme retning som Lok I og Lok II.</p>
       <p class="hint">Tre store bokstaver — jernbanens interne stasjonskode
       (f.eks. SKN). Skiller to anlegg på samme radiokanal i samme lokale:
       parede noder og master godtar kun sitt eget anlegg. Lagring døper
@@ -1753,6 +1920,41 @@ async function renderNoder() {
       dem hjemme, og skru AV «adopter nye noder» på treff. Langtrykk
       (10 s) på knappen til node/master glemmer paringen. Tom ID =
       filter av (alt adopteres, nettet heter NSI63).</p></div>`;
+  }
+
+  // TIDSLÅSENE. Skjemaet tegnes av beskrivelsen serveren sender
+  // (tider_def), så forbildeverdiene og grensene står ETT sted — i
+  // app.py, der de også validerer lagringen.
+  {
+    const def = an.tider_def || [];
+    const naa = an.tider || {};
+    html += `<div class="card"><h2>Tidslåser</h2>
+      <p class="hint">Modelljernbaner kjører som regel med hurtigklokke,
+      og da blir forbildets tider urimelig lange: 90 sekunders
+      hjelpeutløsning er halvannet minutt ekte venting midt i en
+      bevegelse som «egentlig» tok fem. Her settes hver enkelt. Master
+      klemmer verdiene innenfor grensene på sin side også — et tidsvern
+      skal ikke kunne settes til noe farlig utenfra.</p>
+      <table class="tider"><tr>
+        <th>Tidslås</th><th>Forbildet</th><th>I bruk</th></tr>`;
+    for (const t of def) {
+      const v = naa[t.navn] !== undefined ? naa[t.navn] : t.standard;
+      html += `<tr><td><b>${t.tittel}</b>` +
+        `<div class="hint">${t.hva}</div></td>` +
+        `<td class="tid-forbilde">${t.forbilde}` +
+        (t.kilde ? `<div class="hint">${t.kilde}</div>` : ``) + `</td>` +
+        `<td class="tid-verdi"><input type="number" id="tid-${t.navn}"` +
+        ` min="${t.av ? 0 : t.min}" max="${t.maks}" value="${v}">` +
+        ` <span class="hint">${t.enhet}</span>` +
+        `<div class="hint">${t.min}–${t.maks}` +
+        (t.av ? ` · 0 = av` : ``) + `</div></td></tr>`;
+    }
+    html += `</table>
+      <div class="bar" style="margin:8px 0 4px">
+        <button class="mini" onclick="saveAnlegg()">Lagre tidslåser</button>
+        <span class="hint">Lagres sammen med resten av
+        anleggsinnstillingene, og publiseres til master straks.</span>
+      </div></div>`;
   }
 
   // Backup: hele konfigurasjonen (objekter + forrigling + anleggs-ID)
@@ -1936,55 +2138,18 @@ async function renderNoder() {
       (ota[fwFil] && n.online ? `
         <button class="mini" onclick="otaStart('${n.mac}')">Oppdater fw</button>`
                             : ``) + `
-      </div>
-      <div class="chips">`;
-    const chips = n.i2c || [];
-    if (!chips.length && !(n.fw >= 4))
-      html += `<span class="hint">ingen I2C-enheter meldt</span>`;
-    for (const addr of chips) {
-      const isPca = addr.startsWith("0x4");
-      const nPorts = isPca ? 16 : 8;
-      const lbl = portLabels(hal, n.mac, addr);
-      const val = inputs[`${n.mac}/${addr}`];
-      html += `<div class="chip"><table><caption>${addr} ` +
-              (isPca ? "PCA9685 (ut)" : "PCF8574 (inn)") + `</caption>` +
-              `<tr><th>Port</th><th>Funksjon</th>` +
-              (isPca ? "" : "<th>Verdi</th>") + `</tr>`;
-      for (let p = 0; p < nPorts; p++) {
-        html += `<tr><td>${p}</td><td>` +
-                (lbl[p] || `<span class="fri">fri</span>`) + `</td>`;
-        if (!isPca) {
-          if (val === undefined || val === null) html += `<td>–</td>`;
-          else {
-            const bit = (val >> p) & 1;
-            html += `<td class="bit${bit}">${bit}</td>`;
-          }
-        }
-        html += `</tr>`;
-      }
-      html += `</table></div>`;
-    }
-    // GPIO-portene (fw v4+): nodens egne pinner — inn eller ut per
-    // port, bestemt av bindingsstedet. Verdi vises for inngangsporter.
-    if (n.fw >= 4) {
-      const lbl = portLabels(hal, n.mac, "gpio");
-      const inn = gpioInnPorter(hal, n.mac);
-      const val = inputs[`${n.mac}/0x00`];
-      html += `<div class="chip"><table><caption>GPIO (på noden)</caption>` +
-              `<tr><th>Port</th><th>Funksjon</th><th>Verdi</th></tr>`;
-      for (let p = 0; p < GPIO_PINNER.length; p++) {
-        html += `<tr><td>${p} <span class="hint">${GPIO_PINNER[p]}</span></td>` +
-                `<td>` + (lbl[p] || `<span class="fri">fri</span>`) + `</td>`;
-        if (!inn.has(p)) html += `<td class="hint">${lbl[p] ? "ut" : "–"}</td>`;
-        else if (val === undefined || val === null) html += `<td>–</td>`;
-        else {
-          const bit = (val >> p) & 1;
-          html += `<td class="bit${bit}">${bit}</td>`;
-        }
-        html += `</tr>`;
-      }
-      html += `</table></div>`;
-    }
+      </div>` +
+      // Portene står IKKE her lenger. Kabling-siden viser de samme
+      // bindingene som et rutenett per brikke — med litra, symbol,
+      // lampespenn og ledige porter. To lister over det samme går før
+      // eller siden i utakt, og rutenettet er den som også viser
+      // FORMEN på brikken.
+      `<p class="hint">Porter og bindinger: se
+       <a href="#kabling" onclick="gaaTilFane('kabling')">Kabling</a>.
+       Noden meldte ` +
+      ((n.i2c || []).length ? `<b>${(n.i2c || []).join(", ")}</b>`
+                            : `ingen I2C-brikker`) +
+      (n.fw >= 4 ? ` — GPIO finnes alltid` : ``) + `.</p>`;
     html += `</div></div>`;
   }
   // Lampeprøve
@@ -2188,7 +2353,7 @@ async function slaAvTestmodus() {
     body: JSON.stringify({id: an.id, adopter: an.adopter,
                           fjernstyrt: an.fjernstyrt,
                           dekningsstilling: an.dekningsstilling,
-                          hjelpeutlosning_s: an.hjelpeutlosning_s,
+                          tider: an.tider,
                           testmodus: false})});
   const j = await apiJson(r);
   if (!r.ok) { toast(j.error, true); return; }
@@ -2201,12 +2366,19 @@ async function saveAnlegg() {
   const testmodus = document.getElementById("anlegg-test").checked;
   const fjernstyrt = document.getElementById("anlegg-fjern").checked;
   const dekningsstilling = document.getElementById("anlegg-dekning").checked;
-  const hjelpeutlosning_s =
-      parseInt(document.getElementById("anlegg-hjelp").value || "90");
+  const navn = document.getElementById("anlegg-navn").value.trim();
+  const nabo_venstre = document.getElementById("anlegg-nabo-v").value.trim();
+  const nabo_hoyre = document.getElementById("anlegg-nabo-h").value.trim();
+  // Tidslåsene: les feltene som FINNES. Kortet tegnes av serverens
+  // beskrivelse, så en ny tidslås dukker opp her av seg selv.
+  const tider = {};
+  for (const e of document.querySelectorAll('[id^="tid-"]'))
+    tider[e.id.slice(4)] = parseInt(e.value || "0");
   const r = await fetch("/api/anlegg", {method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({id, adopter, testmodus, fjernstyrt,
-                          dekningsstilling, hjelpeutlosning_s})});
+    body: JSON.stringify({id, navn, nabo_venstre, nabo_hoyre,
+                          adopter, testmodus, fjernstyrt,
+                          dekningsstilling, tider})});
   const j = await apiJson(r);
   if (!r.ok) { toast(j.error, true); return; }
   settTittel(j.id);
@@ -2727,6 +2899,70 @@ function frSkisse() {
                `varslet vet ikke hvilken side det gjelder`);
   });
 
+  // Et togspor må ha en veksel i BEGGE ender for å kunne tegnes som
+  // et gjennomgående spor. Har det bare én, tegner panelet det som et
+  // buttspor: hele sporet klapper sammen til én x, og litra, lamper
+  // og togveistiller havner oppå hverandre.
+  //
+  // Feilen kom snikende: så lenge de håndstilte vekslene sto i
+  // togveitabellen, kunne panelet UTLEDE hvilket spor et vekselben
+  // landet på (togveiens «spor» der vekselen ligger normalt). Da
+  // manuellvekslene ble flyttet ut av togveiene og over i låsekravet,
+  // forsvant den kilden — og Sokna veksel 5 sto igjen uten «+→»,
+  // hvorpå spor 02 ble tegnet som en stubb. Ingen sa fra.
+  // Gjennomgangssporet er unntatt: det tegnes kant til kant og
+  // fortsetter forbi stasjonen i begge ender, så det HAR ingen veksel
+  // som avslutter det. Panelets egen regel for hvilket spor det er:
+  // det hvis togveier bare bruker veksler i NORMAL stilling.
+  const gjennomgang = sp => TOGVEIER.filter(t => t.spor === sp)
+    .every(t => (t.sporveksler || []).every(v => v.stilling === "normal"));
+  HALFN.filter(f => f.type === "sporfelt" && f.rolle === "togspor")
+       .forEach(sp => {
+    if (gjennomgang(sp.id)) return;
+    const ender = HALFN.filter(v => isNoenVeksel(v.type) &&
+      [v.pluss_til, v.minus_til, v.spiss_til].includes(sp.id))
+      .map(v => v.id);
+    // Nøyaktig én = sidesporet har bare den ene enden koblet.
+    if (ender.length === 1)
+      adv.push(`togspor ${sp.id}: bare veksel ${ender[0]} peker på det ` +
+               `(«tegning ▸» under Objekter). Et togspor trenger en ` +
+               `veksel i hver ende — med bare én tegnes sporet som ` +
+               `buttspor, og litra, lamper og togveistiller legger seg ` +
+               `oppå hverandre i panelet`);
+  });
+
+  // ... og den andre halvdelen av samme problem: en veksel panelet
+  // ikke KOMMER FRAM til. Vekselgata tegnes ved å følge pluss/minus
+  // fra en rot, og en veksel som ingen peker på, og som ikke selv er
+  // en rot, blir aldri plassert. Med den forsvinner alt som henger
+  // under den — Sokna veksel 3 tok med seg veksel 7 og sidesporene 4
+  // og 5 da den sluttet å være rot.
+  {
+    const vekslerAlle = HALFN.filter(f => isNoenVeksel(f.type));
+    const pektPaa = new Set();
+    for (const v of vekslerAlle)
+      for (const r of [v.pluss_til, v.minus_til])
+        if (String(r || "").startsWith("veksel "))
+          pektPaa.add(String(r).slice(7));
+    const iTogvei = new Set();
+    for (const t of TOGVEIER)
+      for (const v of t.sporveksler || []) iTogvei.add(v.sporveksel);
+    const togsporLitra = new Set(HALFN
+      .filter(f => f.type === "sporfelt" && f.rolle === "togspor")
+      .map(f => f.id));
+    for (const v of vekslerAlle) {
+      if (pektPaa.has(v.id) || iTogvei.has(v.id)) continue;
+      // rot: plussgreina i et togspor, og spissen sier hvilken ende
+      if (togsporLitra.has(String(v.pluss_til)) &&
+          (v.spiss === "v" || v.spiss === "h")) continue;
+      adv.push(`veksel ${v.id}: ingen annen veksel peker på den, og den ` +
+               `er ingen rot i et togspor — panelet finner den ikke og ` +
+               `tegner den ikke. Sett «+→» til togsporet den ligger i, ` +
+               `og «spiss» til stasjonsenden («tegning ▸» under ` +
+               `Objekter)`);
+    }
+  }
+
   const sporTekst = sp => {
     const o = vxSpor[sp] || {v: new Set(), h: new Set()};
     const sg = sigSpor[sp] || {v: [], h: []};
@@ -2826,7 +3062,7 @@ function frSkisse() {
     '<span class="sk-ts">togspor</span> · ' +
     '<span class="sk-lf">linjefelt</span> · ' +
     '<span class="sk-mf">varselfelt</span> · ' +
-    '<span class="sk-vx">sporveksel</span>';
+    '<span class="sk-vx">veksel</span>';
   const unike = [...new Set(adv)];
   advEl.innerHTML = unike.length
     ? unike.map(a => "⚠ " + a).join("<br>")
@@ -2983,6 +3219,14 @@ showView(faneFraHash());   // reload/bokmerke lander på riktig fane
 klokkeSjekk();
 setInterval(klokkeSjekk, 300000);
 setInterval(async () => {
+  // Levende inngangsverdier på Kabling-siden. Bare når fanen er
+  // framme — ellers ville hvert eneste anlegg hentet dem hvert
+  // sekund uten at noen ser dem.
+  const kb = document.getElementById("view-kabling");
+  if (kb && kb.style.display !== "none") {
+    await kbInnHent();
+    kbInnOppdater();
+  }
   const nodes = await (await fetch("/api/nodes")).json();
   liveNodes = nodes.nodes || [];
   STATUS.noder = liveNodes.filter(n => n.online).length;

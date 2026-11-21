@@ -16,15 +16,51 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <title>NSI63 — stillerapparat</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark;
+          /* Pennebredden på skiltingen over apparatet. Står på 0:
+             Nordvester har tyngde nok selv. Streken var kompensasjon
+             for Routed Gothic, som er en monolinje-tegnefont uten
+             bold — bytter skiltfonten tilbake til noe tynt, er det
+             her tyngden hentes. Over 0,7 tettes de trange
+             bokstavene. */
+          --skiltstrek: 0; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; background: #191b1e; color: #d7d9dc;
+  /* Grønnfargen er apparatrommets, ikke en skjermfarge — siden skal
+     ligne stillerapparatet, ikke et dashbord. */
+  body { margin: 0; background: #2a3222; color: #d7d9dc;
          font: 15px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
          padding-bottom: 90px; }
-  header { position: sticky; top: 0; z-index: 5; background: #101214;
-           padding: 10px 14px; display: flex; align-items: baseline;
-           gap: 12px; border-bottom: 1px solid #2c2f33; }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: .5px; }
+  /* Skiltingen over apparatet: stasjonen midtstilt, nabostasjonene i
+     hver sin ende av linjen — venstre og høyre som sporplanen tegnes.
+     Rutenettet er 1fr auto 1fr, så MIDTEN er midten uansett hvor
+     lange nabonavnene er; med flex ville et langt navn dyttet
+     stasjonen ut av senter. */
+  header { position: sticky; top: 0; z-index: 5; background: #2a3222;
+           padding: 10px 14px; border-bottom: 1px solid #1d2318;
+           display: grid; grid-template-columns: 1fr auto 1fr;
+           align-items: baseline; column-gap: 14px; }
+  header h1, header .nabo {
+    font-family: "Nordvester", "Routed Gothic", sans-serif;
+    font-weight: 400;
+    color: #fff; -webkit-text-stroke: var(--skiltstrek) currentColor; }
+  header h1 { font-size: 46px; margin: 0; letter-spacing: 8px;
+              white-space: nowrap; }
+  header .nabo { font-size: 34px; letter-spacing: 4px;
+                 white-space: nowrap; overflow: hidden;
+                 text-overflow: ellipsis; }
+  header #nabo-v { text-align: left; }
+  header #nabo-h { text-align: right; }
+  /* Pilene ligger INLINE, ikke i en flexboks: en flexboks henter
+     grunnlinjen sin fra første barn, og det er pilen — da ville de tre
+     navnene sluttet å stå på samme linje. */
+  /* Pilen måles i EM, ikke piksler: den hører til nabonavnet og skal
+     følge det. Med faste piksler ble den stående igjen som en liten
+     rest da navnene ble doblet. 0,76em høyde x 3,125 er pilens eget
+     format (viewBox 100x32), så den skaleres uten å bli trykt. */
+  header .pil { height: 0.76em; width: 2.375em; fill: #fff;
+                vertical-align: -0.06em; }
+  header #nabo-v .pil { margin-right: 0.47em; }
+  header #nabo-h .pil { margin-left: 0.47em; transform: scaleX(-1); }
   .hint { color: #8b9096; font-size: 12.5px; }
   section { margin: 10px 12px; background: #202327; border-radius: 10px;
             padding: 10px 12px; }
@@ -61,23 +97,39 @@
     font-family: "Routed Gothic";
     src: url("/panel/routed-gothic.ttf") format("truetype");
   }
-  /* Hvit flate som apparatet; grå spor, svart tekst. Slukket lampe
-     er mørk linse; tent lampe = currentColor. Alle lamper r=6. */
+  /* Stasjonsnavnene. Nordvester er Norwester utvidet med de norske
+     bokstavene — originalen har verken Æ, Ø eller Å, og ØRGENVIKA
+     ville fått sin Ø fra en fallbackfont: bredere og tynnere enn
+     nabobokstavene. Begge er SIL OFL. */
+  @font-face {
+    font-family: "Nordvester";
+    src: url("/panel/Nordvester-Regular.ttf") format("truetype");
+  }
+  /* Stasjonsnavnene står i Nordvester — en smal, tung display-font
+     som ligner skiltingen over et apparat. Sporplanens egne skilt
+     beholder Routed Gothic; de er graverte plater, ikke skilt på
+     veggen. */
+  /* Hvit flate som apparatet; grå spor, svart tekst. Hver lampe
+     bærer begge fargene sine (--av slukket, --pa tent). Alle r=6. */
+  /* Samme sidemargin som kortene under, så apparatet står i flukt
+     med dem — det er bare boksen som er borte, ikke plasseringen. */
+  #planholder { margin: 10px 12px; }
   #plansvg { width: 100%; height: auto; display: block;
-             background: #fff; border-radius: 8px; }
-  /* Slukket linse = mørk grå med et HINT av lampens egen farge —
-     lav fargeandel (16 %) så mørk gul ikke slår over i brunt;
-     eldre motorer faller tilbake på flat mørk. */
-  .pl { fill: #26282c;
-        fill: color-mix(in srgb, currentColor 16%, #191b1f);
-        stroke: #33363a; stroke-width: 1; }
-  .pl.pa { fill: currentColor; }
+             border-radius: 8px; }
+  /* Linsen har TO farger, og den slukkede er valgt for seg — den
+     regnes ikke ut av den tente. Blandingen som sto her før virket
+     for alle kulører unntatt gul: mørk oransjegul ER brun, uansett
+     hvor lite av den man tar med. Fargen må forlate gultonen for å
+     slippe unna, og det kan en blanding ikke gjøre. Parene står i
+     ui/signalfarger.js, som lampeStil() setter i --pa og --av. */
+  .pl { fill: var(--av, #3f454e); stroke: #33363a; stroke-width: 1; }
+  .pl.pa { fill: var(--pa); }
   /* Blink drives av ÉN felles fase-klokke (JS toggler body.blinkfase)
      — som forbildets ene blinkapparat: alle blinkende lamper i hele
      anlegget lyser og slukker SAMTIDIG. CSS-animasjon per element
      ville startet på klassetildelingen og gitt utakt. Mørkfasen er
      samme mørke farge som slukket linse. */
-  body.blinkfase .pl.blink { fill: currentColor; }
+  body.blinkfase .pl.blink { fill: var(--pa); }
   .plspor { stroke: #8d9094; stroke-width: 12; fill: none;
             stroke-linecap: butt; }   /* like tykk som lampene, rette ender */
   .pltekst { fill: #111; font: 12px "Routed Gothic",
@@ -91,15 +143,26 @@
   /* den sorte trykknappen (meldeknappen) ved linjefeltet: kvitterer
      varselklokka og løser ut innkjørtogvei som venter på kvittering */
   .plknapp { cursor: pointer; }
-  .plknapp .knhode { fill: #111; stroke: #585b60; stroke-width: 1.5; }
+  .plknapp .knhode { fill: #111; stroke: #33363a; stroke-width: 1; }
   /* betjeningsfeltet (grønn flate under transparenten) */
   .bs { cursor: pointer; }
   .bs .bskn { transition: transform .12s ease-out; }
-  .bsnavn { fill: #f2efe4; font: 10px "Routed Gothic",
-            "Share Tech Mono", monospace; text-anchor: middle; }
-  .bstegn { fill: #f2efe4; font: 13px "Routed Gothic",
-            "Share Tech Mono", monospace; text-anchor: middle; }
-  .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1.5;
+  /* Skiltene: sort på hvitt, som forbildets graverte plater.
+     Skriftstørrelsen settes per skilt av bsSkilt(), som bryter teksten
+     til å passe — derfor står ingen font-size her. */
+  .bsplate { fill: #f2efe4; stroke: #1c1e21; stroke-width: 1; }
+  /* Amperemeteret. Viseren har treghet som et virkelig
+     dreiespoleinstrument — den svinger, den hopper ikke. */
+  .ampskive { fill: #f2efe4; }
+  .ampsort { fill: #14181c; }
+  .amptekst { fill: #14181c; font-weight: 700;
+              font-family: "Arial Narrow", "Helvetica Neue", sans-serif; }
+  /* Standardstørrelsen. En linje som ikke får plass får sin egen,
+     mindre størrelse satt av bsSkilt() — derfor style="font-size"
+     der. */
+  .bsskilt { fill: #111; font: 12px "Routed Gothic",
+             "Share Tech Mono", monospace; text-anchor: middle; }
+  .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1;
                   transition: transform .12s ease-out; }
   /* skille mellom sporfelt i forriglingen: svart tverrstrek i båndet */
   .plskille { fill: #111; }
@@ -114,8 +177,16 @@
 </head>
 <body class="dod">
 <header>
-  <h1 id="tittel">NSI63 — stillerapparat</h1>
-  <span class="hint" id="substatus">kobler til …</span>
+  <!-- Retningspilene: hode, skaft og kløftet bakende, som skiltene på
+       apparatet. Skaftet er tykkere enn på forbildet — i 13 piksler
+       forsvinner et tynt skaft, og pilen blir en klump. -->
+  <span class="nabo" id="nabo-v">
+    <svg class="pil" viewBox="0 0 100 32" aria-hidden="true">
+      <path d="M0,16 L26,2 L26,11 L58,11 L58,1 L100,1 L87,16 L100,31 L58,31 L58,21 L26,21 L26,30 Z"/></svg><span class="navn"></span></span>
+  <h1 id="tittel"></h1>
+  <span class="nabo" id="nabo-h"><span class="navn"></span>
+    <svg class="pil" viewBox="0 0 100 32" aria-hidden="true">
+      <path d="M0,16 L26,2 L26,11 L58,11 L58,1 L100,1 L87,16 L100,31 L58,31 L58,21 L26,21 L26,30 Z"/></svg></span>
 </header>
 <main id="hoved">
   <section><p class="hint">Venter på konfigurasjon fra brokeren
@@ -139,6 +210,57 @@ const K = { hal: null, fr: null, anlegg: null };   // konfigene
 // nsi63/sporveksel/<litra>/…. Det er forriglingen de skilles i, ikke
 // flaten.
 const erVeksel = t => t === "sporveksel" || t === "manuellveksel";
+// Hvilken vei avviket ligger for hver sentralstilt veksel, avledet av
+// SPORPLANEN: går avviksgreina oppover i tegningen, legges stilleren
+// opp for avvik — og motsatt. Apparatet skal kunne leses av som et
+// bilde av sporet, ikke som en tabell man må huske.
+// Fylles av byggPlan; true = avvik oppover (antatt når ukjent).
+const VAVVIKOPP = {};
+// Stillerens utslag og knottens radius. Sporet regnes ut av disse, så
+// et større utslag gir et lengre spor av seg selv — knotten skal
+// vandre HELE sporet, fra kant til kant, ellers ser bevegelsen mindre
+// ut enn den er.
+const BSUTSLAG = 25, BSKNOTT = 8;
+// TRYKKNAPPENE har alle samme diameter — Jord og Sign.stp på
+// betjeningsfeltet og meldeknappen ved linjefeltet var 10, 10 og 7,
+// altså tre størrelser på det som er samme slags håndtak.
+//
+// Verdien er stillerknottens, men konstanten er EGEN: knapper og
+// stillere ser like ut i dag, og det er ikke sikkert de skal gjøre
+// det i morgen. Da kan denne endres uten å røre stillerne.
+const BSKNAPP = BSKNOTT;
+const BSKNAPPINN = 2;   // hvor mye knappen synker mens den trykkes
+// Hvor langt sporet trekkes INN fra knottens ytterkant i hver ende.
+// Knotten dekker da enden av sporet i endestillingen i stedet for å
+// stå flukt med den. Med innrykk lik knottradien er sporet nøyaktig
+// banen knottens SENTER går i: 2 x BSUTSLAG for en stiller som går
+// begge veier (50 px), BSUTSLAG for en som bare går ned (25 px).
+const BSSPORINN = 8;
+// Hvor lenge en stiller står omlagt før den fjærer tilbake uten
+// bekreftelse fra anlegget. Rikelig for en tur til master og hjem
+// over den lokale brokeren; kort nok til å leses som en fjær.
+const BSVENTSTART = 1500;
+// Sporet stilleren vandrer i. ÉN funksjon for begge orienteringene:
+// togveistillerne på planen ligger vannrett og betjeningsfeltets
+// stillere loddrett, men de er samme slags stiller og skal se like
+// ut. Endres BSUTSLAG/BSKNOTT/BSSPORINN, følger begge med.
+//
+// Sporet er like langt til begge sider på ALLE stillerne, også de
+// som bare kan legges én vei. Sporet er en utfresing i frontplata,
+// og på et virkelig apparat freses den likt uansett hva stilleren
+// bak den kan gjøre — det er stilleren som er sperret, ikke sporet
+// som er kortere. Et halvt spor ville dessuten satt hvilepunktet
+// visuelt i enden i stedet for i midten.
+function bsSpor(cx, cy, vannrett) {
+  const ut = BSUTSLAG + BSKNOTT - BSSPORINN;
+  const fra = -ut;
+  const len = ut - fra;
+  const x = vannrett ? cx + fra : cx - 3.5;
+  const y = vannrett ? cy - 3.5 : cy + fra;
+  return `<rect x="${x}" y="${y}" ` +
+    `width="${vannrett ? len : 7}" height="${vannrett ? 7 : len}" ` +
+    `fill="#7c7f83" stroke="#4a4d51" stroke-width="1"/>`;
+}
 const TIL = {};        // tema (uten rot) -> siste payload
 const BIND = {};       // tema -> [oppdateringsfunksjoner]
 let bygget = false;
@@ -151,10 +273,11 @@ klient.on("connect", () => {
   klient.subscribe(ROT + "#");
 });
 ["close", "offline", "error"].forEach(e => klient.on(e, () => dod(true)));
+// Ingen «tilkoblet»-linje: at forbindelsen er oppe sier siden selv
+// ved å vise noe i det hele tatt. Det er det MOTSATTE som må ropes
+// ut, og det gjør FRAKOBLET-overlegget.
 function dod(erDod) {
   document.body.classList.toggle("dod", erDod);
-  document.getElementById("substatus").textContent =
-    erDod ? "" : "tilkoblet " + location.hostname;
 }
 function pub(tema, pl) { klient.publish(ROT + tema, String(pl)); }
 
@@ -171,10 +294,23 @@ klient.on("message", (tema, rå) => {
 });
 function trygJson(s) { try { return JSON.parse(s); } catch (e) { return null; } }
 function titt() {
-  const id = (K.anlegg && K.anlegg.id) || "";
-  document.getElementById("tittel").textContent =
-    "NSI63" + (id ? " " + id : "") + " — stillerapparat";
-  document.title = document.getElementById("tittel").textContent;
+  // Stasjonsnavnet fra konfigen, slik det står over apparatet.
+  // Panelet fabrikkerer aldri navn selv: mangler navnet, viser vi
+  // anleggs-IDen, og mangler den også, står det ingenting.
+  const a = K.anlegg || {};
+  const navn = (a.navn || a.id || "").trim();
+  document.getElementById("tittel").textContent = navn;
+  // Nabostasjonene er ren skilting. Står navnet tomt, skjules HELE
+  // enden — en pil uten stasjon å peke på sier ingenting.
+  for (const [id, navn] of [["nabo-v", a.nabo_venstre],
+                            ["nabo-h", a.nabo_hoyre]]) {
+    const el = document.getElementById(id);
+    const n = (navn || "").trim();
+    el.querySelector(".navn").textContent = n;
+    el.hidden = !n;
+  }
+  document.title = navn ? navn + " — stillerapparat"
+                        : "NSI63 — stillerapparat";
 }
 function mstat(s) {
   if (s !== "online") logg("master/status", s);
@@ -209,18 +345,11 @@ function bygg() {
     (st[type] && st[type].signalnr && st[type].signalnr[bilde])
       ? st[type].signalnr[bilde] + " " : "";
 
+  // Bare det tekstflaten under apparatet fortsatt trenger: sporfeltene
+  // (simuleringsknappene) og to tellinger til loggen. Resten av
+  // objektlistene forsvant med seksjonene de bygget.
   const veksler = fns.filter(f => erVeksel(f.type));
-  const sperrer = fns.filter(f => f.type === "sporsperre");
-  const laaser = fns.filter(f => f.type === "samlelaas");
-  const rigler = fns.filter(f => f.type === "rigel");
-  const laasFor = {};   // objektlitra -> låsen (samlelås/rigel) som omfatter det
-  for (const l of laaser.concat(rigler))
-    for (const vl of (l.omfatter || [])) laasFor[vl] = l;
-  const skift = fns.filter(f => String(f.type).startsWith("skiftesignal"));
-  const signaler = fns.filter(f =>
-    ["hovedsignal", "forsignal", "dvergsignal"].includes(klasse(f.type)));
   const felt = fns.filter(f => f.type === "sporfelt");
-  const varselfelt = felt.filter(f => f.rolle === "varselfelt");
   const togveier = (K.fr.togveier || []).map(tv => tv.id);
 
   let h = "";
@@ -228,212 +357,11 @@ function bygg() {
   /* Sporplanen — milepæl 2-skjelettet: komposisjonsmotor + plass-
      holderblokker. Feiler komposisjonen, forsvinner bare planen —
      tekstflaten under er alltid komplett. */
-  h += `<section><h2>Sporplan
-    <button style="float:right" onclick="lagreSvg()"
-      title="Last ned sporplanen som frittstående SVG-fil — alle lamper tent, skiltfonten innbakt">Lagre SVG</button></h2>
-    <div id="planholder"></div></section>`;
-
-  /* Togveier — instruksens betjening som knapper */
-  h += `<section><h2>Togveier</h2>`;
-  for (const id of togveier) {
-    h += `<div class="rad"><span class="litra">${id}</span>
-      <span class="st" data-b="togvei/${id}/state">–</span>
-      <button onclick="pub('togvei/${id}/set','sikre')">Sikre</button>
-      <button onclick="pub('togvei/${id}/set','stopp')"
-        title="Hjelpeutløsning trinn 1: signal i stopp, fortsatt forriglet">Stopp</button>
-      <button onclick="pub('togvei/${id}/set','hjelpeutlos')"
-        title="Hjelpeutløsning trinn 2: løser ut (krever signal i stopp)">Utløs</button>
-      <button data-kv="${id}" style="opacity:.35"
-        onclick="pub('togvei/${id}/set','kvitter')"
-        title="Sistevognskontroll (instruksens VI): virker BARE når togveien står i klar-utlos — dvs. etter at utløsningsfeltet har vært belagt og blitt fritt igjen. Ellers svarer master «venter ikke paa sistevognskontroll».">Kvitter</button>
-      <span class="info" data-b="togvei/${id}/info"></span></div>`;
-    bind(`togvei/${id}/state`, (v, el) => {
-      el.textContent = v;
-      el.className = "st " + (
-        v === "ledig" ? "ledig" :
-        v === "aktiv" ? "aktiv" :
-        v === "klar-utlos" || v === "sikring" || v === "hjelpeutlosning"
-          ? "varsel" : "");
-      // Kvitter-knappen er bare meningsfull i klar-utlos — dimmes
-      // ellers (fortsatt klikkbar: master svarer og forklarer)
-      document.querySelectorAll(`[data-kv="${id}"]`).forEach(b => {
-        b.style.opacity = (v === "klar-utlos") ? "1" : ".35";
-      });
-    });
-    bindInfo(`togvei/${id}/info`);
-  }
-  h += `</section>`;
-
-  /* Sporveksler */
-  h += `<section><h2>Sporveksler</h2>`;
-  for (const v of veksler) {
-    // Har vekselen tungekontroll (stillingssensorer i HAL)? Uten
-    // sensorer BEKREFTER master omleggingen automatisk etter 1,5 s —
-    // «normal»/«avvik» er da en ANTATT stilling, og det skal synes.
-    const harSens = (v.bindinger || []).some(b =>
-      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
-    h += `<div class="rad"><span class="litra">${v.id}</span>
-      <span class="st" data-b="sporveksel/${v.id}/state">–</span>
-      <button onclick="pub('sporveksel/${v.id}/set','normal')">Normal</button>
-      <button onclick="pub('sporveksel/${v.id}/set','avvik')">Avvik</button>` +
-      (harSens ? `` : `<span class="hint"
-        title="Vekselen har ingen sensor-normal/sensor-avvik-bindinger i HAL. Master bekrefter omleggingen på tid (1,5 s) — stillingen er kommandert, ikke kontrollert.">uten tungekontroll — stilling antas</span>`) +
-      (laasFor[v.id] ? `<span class="hint" data-sl="${laasFor[v.id].id}"
-        title="Vekselen ligger i virkeområdet til samlelåsen ${laasFor[v.id].navn || laasFor[v.id].id} — sperret lås avviser all omlegging"></span>` : ``) +
-      `<span class="info" data-b="sporveksel/${v.id}/info"></span></div>`;
-    bindSt(`sporveksel/${v.id}/state`, s =>
-      s === "feil" ? "roed" : s === "omlegging" ? "varsel"
-      : s === "ukjent" ? "varsel" : "");
-    bindInfo(`sporveksel/${v.id}/info`);
-  }
-  /* Sporsperrer — deler vekselmaskineriet; pålagt er normalstillingen
-     (dekningen). Omlegging gates av samlelåsen/rigelen som eier dem. */
-  for (const sp of sperrer) {
-    const harSens = (sp.bindinger || []).some(b =>
-      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
-    h += `<div class="rad"><span class="litra">${sp.id}</span>
-      <span class="st" data-b="sporsperre/${sp.id}/state">–</span>
-      <button onclick="pub('sporsperre/${sp.id}/set','paalagt')"
-        title="Normalstillingen — sporet sperret (dekningen togveiene krever)">Pålagt</button>
-      <button onclick="pub('sporsperre/${sp.id}/set','avlagt')">Avlagt</button>` +
-      (harSens ? `` : `<span class="hint"
-        title="Sperren har ingen sensor-bindinger i HAL. Master bekrefter omleggingen på tid (1,5 s) — stillingen er kommandert, ikke kontrollert.">uten kontroll — stilling antas</span>`) +
-      (laasFor[sp.id] ? `<span class="hint" data-sl="${laasFor[sp.id].id}"
-        title="Sperren ligger i virkeområdet til ${laasFor[sp.id].navn || laasFor[sp.id].id} — sperret lås avviser all omlegging"></span>` : ``) +
-      `<span class="info" data-b="sporsperre/${sp.id}/info"></span></div>`;
-    bindSt(`sporsperre/${sp.id}/state`, s =>
-      s === "feil" ? "roed" : s === "omlegging" ? "varsel"
-      : s === "ukjent" ? "varsel" : s === "avlagt" ? "varsel" : "");
-    bindInfo(`sporsperre/${sp.id}/info`);
-  }
-  h += `</section>`;
-
-  /* Samlelåser — elektrisk frigitte kontrollnøkler.
-     Sperret = nøkkelen i kontroll, vekslene låst (normaltilstanden).
-     Frigitt/nøkkel ute = togveiene i virkeområdet avvises. Nøkkel-
-     knappene simulerer nøkkelkontakten (benketesting) — «Sensor»
-     gir den fysiske kontakten tilbake. */
-  if (laaser.length || rigler.length) {
-    h += `<section><h2>Samlelåser og rigler <span class="hint">sperret
-      lås låser objektene — frigitt lås sperrer togveiene</span></h2>`;
-    for (const l of laaser) {
-      const navn = l.navn || l.id;
-      const omf = (l.omfatter || []).join(", ") || "(ingen objekter)";
-      const virke = (l.sperrer || []).length
-        ? "togveier til/fra " + l.sperrer.join(", ")
-        : "alle togveier (hele stasjonen)";
-      h += `<div class="rad"><span class="litra" title="${l.id}">${navn}</span>
-        <span class="st" data-b="samlelaas/${l.id}/state">–</span>
-        <button onclick="pub('samlelaas/${l.id}/set','frigi')"
-          title="Frigi nøkkelen elektrisk — avvises mens en togvei i virkeområdet er forriglet">Frigi</button>
-        <button onclick="pub('samlelaas/${l.id}/set','sperr')"
-          title="Ta frigivningen tilbake — med nøkkelkontakt sperrer låsen først når nøkkelen står i">Sperr</button>
-        <button onclick="pub('samlelaas/${l.id}/sim','ute')"
-          title="Simuler at nøkkelen tas ut av låsen. Ute uten frigivning = NØDUTLØSNING: kjørsignalene over virkeområdet felles straks.">Nøkkel ute</button>
-        <button onclick="pub('samlelaas/${l.id}/sim','inne')"
-          title="Simuler at nøkkelen settes inn igjen">Nøkkel inne</button>
-        <button onclick="pub('samlelaas/${l.id}/sim','auto')"
-          title="Slipp simuleringen — den fysiske nøkkelkontakten rår">Sensor</button>
-        <span class="hint" title="Objektene låsen omfatter · togveiene den sperrer">${omf} · ${virke}</span>
-        <span class="info" data-b="samlelaas/${l.id}/info"></span></div>`;
-      bindSt(`samlelaas/${l.id}/state`, v =>
-        v === "sperret" ? "ledig" : v === "frigitt" ? "varsel" : "roed");
-      bindInfo(`samlelaas/${l.id}/info`);
-      // merkelappen på vekselradene i virkeområdet følger tilstanden
-      (BIND[`samlelaas/${l.id}/state`] =
-       BIND[`samlelaas/${l.id}/state`] || []).push(pl => {
-        document.querySelectorAll(`[data-sl="${l.id}"]`).forEach(el => {
-          el.textContent = pl === "sperret" ? `låst av ${navn}`
-                         : pl === "frigitt" ? `frigitt (${navn})`
-                         : `nøkkel ute (${navn})`;
-        });
-      });
-    }
-    /* Rigler — direkte elektrisk lås, ingen nøkkel. Etterløpet (10 s
-       ved tilbaketaking) vises som egen tilstand; rigelen sperrer
-       først når alle objektene ligger i normalstilling igjen. */
-    for (const r of rigler) {
-      const navn = r.navn || r.id;
-      const omf = (r.omfatter || []).join(", ") || "(ingen objekter)";
-      const virke = (r.sperrer || []).length
-        ? "togveier til/fra " + r.sperrer.join(", ")
-        : "alle togveier (hele stasjonen)";
-      h += `<div class="rad"><span class="litra" title="${r.id}">${navn}</span>
-        <span class="st" data-b="rigel/${r.id}/state">–</span>
-        <button onclick="pub('rigel/${r.id}/set','frigi')"
-          title="Frigi rigelen — avvises mens en togvei i virkeområdet er forriglet. Frigitt kan sperren legges av og vekselen legges om.">Frigi</button>
-        <button onclick="pub('rigel/${r.id}/set','sperr')"
-          title="Ta frigivningen tilbake: 10 s etterløp, deretter sperrer rigelen når alle objektene ligger i normalstilling (pålagt sperre, veksel i normal)">Sperr</button>
-        <span class="hint" title="Objektene rigelen låser · togveiene den sperrer">${omf} · ${virke}</span>
-        <span class="info" data-b="rigel/${r.id}/info"></span></div>`;
-      bindSt(`rigel/${r.id}/state`, v =>
-        v === "sperret" ? "ledig" : v === "frigitt" ? "varsel" : "roed");
-      bindInfo(`rigel/${r.id}/info`);
-      (BIND[`rigel/${r.id}/state`] =
-       BIND[`rigel/${r.id}/state`] || []).push(pl => {
-        document.querySelectorAll(`[data-sl="${r.id}"]`).forEach(el => {
-          el.textContent = pl === "sperret" ? `låst av ${navn}`
-                         : pl === "frigitt" ? `frigitt (${navn})`
-                         : `etterløp (${navn})`;
-        });
-      });
-    }
-    h += `</section>`;
-  }
-
-  /* Høye skiftesignaler */
-  if (skift.length) {
-    h += `<section><h2>Høye skiftesignaler</h2>`;
-    for (const s of skift) {
-      // BETJENING via /set (gjennom forriglingen) — /sim er en
-      // benkeoverstyring som LÅSER bildet og kobler ut automatikken
-      // (41 under omlegging), og hører ikke hjemme på en knapp
-      h += `<div class="rad"><span class="litra">${s.id}</span>
-        <span class="st" data-b="skiftesignal/${s.id}/state">–</span>
-        <button onclick="pub('skiftesignal/${s.id}/set','skifting-tillatt')"
-          title="Slå på skiftingen: signal 42 — automatikken viser 41 mens en veksel i området legges om">Skifting tillatt</button>
-        <button onclick="pub('skiftesignal/${s.id}/set','slukket')"
-          title="Ta skiftingen tilbake: signalet slukkes (normalstillingen)">Avslutt skifting</button>
-        </div>`;
-      bindSt(`skiftesignal/${s.id}/state`,
-             v => v === "skifting-tillatt" ? "varsel"
-                : v === "skifting-forbudt" ? "roed" : "");
-    }
-    h += `</section>`;
-  }
-
-  /* Varselfelt — den sorte trykknappen */
-  if (varselfelt.length) {
-    h += `<section><h2>Varselfelt <span class="hint">tog i anmarsj —
-      sort trykknapp kvitterer</span></h2>`;
-    for (const f of varselfelt) {
-      h += `<div class="rad"><span class="litra">${f.id}</span>
-        <span class="st" data-b="varselfelt/${f.id}/state">–</span>
-        <button onclick="pub('varselfelt/${f.id}/kvitter','')"
-          style="background:#111;border-color:#666">⬤ Sort knapp</button>
-        </div>`;
-      bindSt(`varselfelt/${f.id}/state`,
-             v => v === "melding" ? "varsel" : "ledig");
-    }
-    h += `</section>`;
-  }
-
-  /* Signaler (visning) */
-  h += `<section><h2>Signaler</h2>`;
-  for (const s of signaler) {
-    const kl = klasse(s.type);
-    h += `<div class="rad"><span class="litra">${s.id}</span>
-      <span class="hint" style="min-width:82px">${kl}</span>
-      <span class="st" data-b="${kl}/${s.id}/state">–</span></div>`;
-    const type = s.type;
-    bind(`${kl}/${s.id}/state`, (v, el) => {
-      el.textContent = nr(type, v) + v;
-      el.className = "st " +
-        (v.startsWith("stopp") || v === "skifting-forbudt" ? "roed"
-         : v.startsWith("kjor") ? "aktiv" : "");
-    });
-  }
-  h += `</section>`;
+  // Sporplanen står UTEN kort og overskrift. Den ER apparatet — en
+  // ramme med tittel rundt gjør den til en illustrasjon i et
+  // dashbord. Tabellene under beholder kortene sine; de er
+  // betjening og skal se ut som det de er.
+  h += `<div id="planholder"></div>`;
 
   /* Sporfelt — visning + simulering (benketesting: uten sensorer er
      dette eneste måten å «kjøre tog» fra panelet, f.eks. for å nå
@@ -454,29 +382,23 @@ function bygg() {
   h += `</section>`;
 
   /* Brytere */
-  h += `<section><h2>Brytere</h2>
+  // Å legge om bryterne gjøres på apparatet — Sign.stp og Jord er
+  // trykknapper der, Lok I og Lok II er stillere. Det som IKKE finnes
+  // der, er å gi kontrollen tilbake til en FYSISK bryter: panelet
+  // setter en sim når du betjener det, og bare «Fysisk» slipper den.
+  h += `<section><h2>Brytere
+    <span class="hint">slipp simuleringen</span></h2>
     <div class="rad"><span class="litra">Sign.stp</span>
       <span class="st" data-b="master/signalstopp">–</span>
-      <button onclick="pub('signalstopp/sim','paa')">På</button>
-      <button onclick="pub('signalstopp/sim','av')">Av</button>
-      <button onclick="pub('signalstopp/sim','auto')"
-        title="Slipp simuleringen — den fysiske bryteren rår">Fysisk</button>
+      <button onclick="pub('signalstopp/sim','auto')">Fysisk</button>
     </div>
     <div class="rad"><span class="litra">Lok v</span>
       <span class="st" data-b="master/frigivning" data-del="venstre">–</span>
-      <button onclick="pub('frigivning/v/sim','paa')">Frigi</button>
-      <button onclick="pub('frigivning/v/sim','av')">Ta tilbake</button>
       <button onclick="pub('frigivning/v/sim','auto')">Fysisk</button>
     </div>
     <div class="rad"><span class="litra">Lok h</span>
       <span class="st" data-b="master/frigivning" data-del="hoyre">–</span>
-      <button onclick="pub('frigivning/h/sim','paa')">Frigi</button>
-      <button onclick="pub('frigivning/h/sim','av')">Ta tilbake</button>
       <button onclick="pub('frigivning/h/sim','auto')">Fysisk</button>
-    </div>
-    <div class="rad"><span class="litra">Jord</span>
-      <span class="st" data-b="master/jord">–</span>
-      <button onclick="pub('jord/sim','trykk')">Jord-knappen</button>
     </div></section>`;
   bindSt("master/signalstopp", v => v === "paa" ? "roed" : "ledig");
   bind("master/frigivning", (v, el) => {
@@ -484,9 +406,17 @@ function bygg() {
     el.textContent = d[el.dataset.del] ? "frigitt" : "normal";
     el.className = "st " + (d[el.dataset.del] ? "varsel" : "ledig");
   });
-  bindSt("master/jord", v => v === "sperret" ? "roed" : "ledig");
 
   /* Hendelseslinje */
+  /* «Lagre SVG» hører hjemme her nede blant tabellene, ikke over
+     sporplanen: planen skal se ut som apparatet, og en knapp i
+     overskriften røper at det er en nettside. */
+  h += `<section><h2>Verktøy</h2>
+    <div class="rad"><span class="litra">Sporplan</span>
+      <button onclick="lagreSvg()"
+        title="Last ned sporplanen som frittstående SVG-fil — alle lamper tent, skiltfonten innbakt">Lagre SVG</button>
+    </div></section>`;
+
   h += `<section><h2>Siste meldinger</h2><div id="logg"></div>
     <p class="hint">Avvisninger begrunnes her og ved raden det
     gjelder. Full historikk: hendelsesloggen i HAL-UI-et.</p></section>`;
@@ -533,8 +463,9 @@ function bindInfo(tema) {
    - OVERLEGGS-BLOKKER (signaler, lås-symboler, tekst) ankres mot
      modulen med et punkt på sporlinjen og flippes over/under etter
      siden de skal stå på.
-   - Lampelinser er egne elementer med klasse "pl" og tent farge i
-     currentColor — koden mørker (av), tenner (pa) og blinker (blink).
+   - Lampelinser er egne elementer med klasse "pl" og BEGGE fargene
+     sine i --pa/--av (se lampeStil i ui/signalfarger.js) — koden
+     mørker (av), tenner (pa) og blinker (blink).
    Hver blokk er én funksjon i `pbl` som returnerer SVG-tekst; når
    kunstverkets SVG-er kommer, byttes funksjonens innmat blokk for
    blokk — komposisjonen og bindingene røres ikke. */
@@ -546,7 +477,7 @@ const pbl = {
   linje: (x, y) => `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>`,
   linjeLampe: (x, y, id, farge) =>
     pbl.linje(x, y) +
-    `<circle id="${id}" class="pl" style="color:${farge}" ` +
+    `<circle id="${id}" class="pl" style="${lampeStil(farge)}" ` +
     `cx="${x+50}" cy="${y+SY}" r="6"/>`,
   // Linjefelt-ende: sporet ut til kanten, feltlampe + blå togveislampe.
   // Litraen skrives PÅ sporbåndet ved siden av lampa (innsiden).
@@ -561,9 +492,9 @@ const pbl = {
       : `<text class="pltekst" text-anchor="end" x="${lx - 12}" ` +
         `y="${y+SY+4}">${litra}</text>`;
     return `<path class="plspor" d="${sp}"/>` +
-      `<circle id="${idL}" class="pl" style="color:#ffb400" ` +
+      `<circle id="${idL}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${lx}" cy="${y+SY}" r="6"/>` +
-      `<circle id="${idTv}" class="pl" style="color:#1f8fff" ` +
+      `<circle id="${idTv}" class="pl" style="${lampeStil('#1f8fff')}" ` +
       `cx="${lx}" cy="${y+SY+16}" r="6"/>` + txt;
   },
   // Halsveksel: rett spor + avvik som diagonal til øvre modulhjørne
@@ -577,9 +508,9 @@ const pbl = {
     return `<g class="plklikk" onclick="plVeksel('${litra}')">` +
       `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
       `<path class="plspor" d="${d}"/>` +
-      `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${nx}" cy="${y+SY}" r="6"/>` +
-      `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${ax}" cy="${y+SY-14}" r="6"/>` +
       `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
   },
@@ -602,9 +533,9 @@ const pbl = {
       `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
       `<path class="plspor" d="M${fra},${y+SY} L${gx},${gy} ` +
       `m${side==="h"?-4:4},${opp?-3:3} l8,6"/>` +
-      `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${x+(side==="h"?26:74)}" cy="${y+SY}" r="6"/>` +
-      `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${(fra+gx)/2}" cy="${(y+SY+gy)/2}" r="6"/>` +
       `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
   },
@@ -628,12 +559,12 @@ const pbl = {
   noekkelfelt: (px, py, id, navn) =>
     `<g><rect x="${px}" y="${py}" width="22" height="22" ` +
     `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` +
-    `<circle id="pl-sl-${id}" class="pl" style="color:#ffb400" ` +
+    `<circle id="pl-sl-${id}" class="pl" style="${lampeStil('#ffb400')}" ` +
     `cx="${px+11}" cy="${py+11}" r="6"/>` +
     `<text class="plnavn" x="${px+27}" y="${py+15}">${navn}</text></g>`,
   // Rigel-etikett med kontrollampe (ved sperresymbolet, som fotoet)
   rigel: (px, py, id, navn) =>
-    `<g><circle id="pl-ri-${id}" class="pl" style="color:#ffb400" ` +
+    `<g><circle id="pl-ri-${id}" class="pl" style="${lampeStil('#ffb400')}" ` +
     `cx="${px}" cy="${py}" r="6"/>` +
     `<text class="plnavn" x="${px+9}" y="${py+4}">${navn}</text></g>`,
 };
@@ -655,20 +586,35 @@ async function lagreSvg() {
     fontCss = `@font-face{font-family:"Routed Gothic";` +
       `src:url(data:font/ttf;base64,${btoa(b)}) format("truetype");}`;
   } catch (e) { /* uten font: fallback gjelder */ }
+  // Hammerlakkflisen bakes inn som data-URI: en eksportert fil skal
+  // kunne åpnes hvor som helst, uten Pi-en i den andre enden.
+  const bilde = kopi.querySelector("#pl-hammerlakk");
+  try {
+    // Adressen leses av elementet, ikke bygges på nytt — den bærer
+    // flisas mål som versjonsnøkkel, og de skal stå ett sted.
+    const r = await fetch(bilde.getAttribute("href"));
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let b = "";
+    for (let i = 0; i < buf.length; i++) b += String.fromCharCode(buf[i]);
+    bilde.setAttribute("href", `data:image/png;base64,${btoa(b)}`);
+  } catch (e) { /* uten flis: grunnfargen står igjen */ }
   const NS = "http://www.w3.org/2000/svg";
   const st = document.createElementNS(NS, "style");
   st.textContent = fontCss + `
-    .pl { fill: currentColor; stroke: #33363a; stroke-width: 1; }
+    .pl { fill: var(--pa); stroke: #33363a; stroke-width: 1; }
     .plspor { stroke: #8d9094; stroke-width: 12; fill: none;
               stroke-linecap: butt; }
     .pltekst { fill: #111; font: 12px "Routed Gothic", sans-serif; }
     .plnavn { fill: #111; font: 11px "Routed Gothic", sans-serif; }
-    .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1.5; }
-    .plknapp .knhode { fill: #111; stroke: #585b60; stroke-width: 1.5; }
-    .bsnavn { fill: #f2efe4; font: 10px "Routed Gothic", sans-serif;
-              text-anchor: middle; }
-    .bstegn { fill: #f2efe4; font: 13px "Routed Gothic", sans-serif;
-              text-anchor: middle; }
+    .pltvs .knott { fill: #c9342a; stroke: #33363a; stroke-width: 1; }
+    .plknapp .knhode { fill: #111; stroke: #33363a; stroke-width: 1; }
+    .bsplate { fill: #f2efe4; stroke: #1c1e21; stroke-width: 1; }
+    .ampskive { fill: #f2efe4; }
+    .ampsort { fill: #14181c; }
+    .amptekst { fill: #14181c; font-weight: 700;
+                font-family: "Arial Narrow", "Helvetica Neue", sans-serif; }
+    .bsskilt { fill: #111; font: 12px "Routed Gothic", sans-serif;
+               text-anchor: middle; }
     .plskille { fill: #111; }`;
   const vb = kopi.viewBox.baseVal;
   const bg = document.createElementNS(NS, "rect");
@@ -715,7 +661,8 @@ function plDytt(litra, r) {
   const g = document.getElementById(`pl-tvs-${litra}`);
   const k = g && g.querySelector(".knott");
   if (k) {
-    k.setAttribute("transform", `translate(${r === "v" ? -6 : 6},0)`);
+    k.setAttribute("transform",
+                   `translate(${r === "v" ? -BSUTSLAG : BSUTSLAG},0)`);
     setTimeout(() => k.removeAttribute("transform"), 250);
   }
 }
@@ -735,49 +682,239 @@ function plKnapp(lf) {
   const g = document.getElementById(`pl-kn-${lf}`);
   const k = g && g.querySelector(".knhode");
   if (k) {
-    k.setAttribute("r", "5");
-    setTimeout(() => k.setAttribute("r", "7"), 150);
+    k.setAttribute("r", BSKNAPP - BSKNAPPINN);
+    setTimeout(() => k.setAttribute("r", BSKNAPP), 150);
   }
 }
 // BETJENINGSFELTET (den grønne flaten under transparenten) — de
 // stående stillerne følges av tilstand (bsSett), de tilbakefjærende
 // fjærer visuelt. Fargene er dagens regelverk (ORV kap. 3.3).
-function bsSett(slag, id, ned) {   // stående stiller: normal/lagt ned
+// «I normalstilling står stilleren rett ut fra stillerapparatet»
+// (ORV 3.3.3, 3.3.4, 3.3.8, 3.3.9). Den legges 45° NED for å
+// aktivere — skifting tillatt, lås frigitt, Lok-frigivning på — og
+// blir liggende der til den legges tilbake.
+//
+// Vekselstilleren er unntaket som bekrefter regelen: den kan legges
+// opp ELLER ned, men fjærer tilbake til midten (se bsDytt).
+// STILLERNE SOM BLIR STÅENDE (skift, lok, samlelås, rigel) styres av
+// tilstanden fra anlegget, ikke av trykket. Det er riktig — det er
+// anlegget som avgjør — men det gjorde at et AVVIST forsøk ikke ga
+// noe utslag i det hele tatt: stilleren rørte seg ikke, og operatøren
+// satt igjen uten å vite om ordren var mottatt eller ignorert.
+//
+// Nå legges stilleren om med én gang og går tilbake hvis anlegget
+// ikke bekrefter innen fristen. Det er den mekaniske stilleren
+// oversatt: hånda legger den om, og fjærer den tilbake når
+// forriglingen nekter.
+//
+// bsSist er hvor anlegget SIST sa stilleren står — dit den faller
+// tilbake. bsVent er vakthunden som venter på bekreftelse.
+const bsSist = {}, bsVent = {};
+
+function bsStill(k, ned) {
+  if (ned) k.setAttribute("transform", `translate(0,${BSUTSLAG})`);
+  else k.removeAttribute("transform");
+}
+
+function bsSett(slag, id, aktiv) {
   const k = document.getElementById(`bs-kn-${slag}-${id}`);
   if (!k) return;
-  if (ned) k.setAttribute("transform", "translate(0,14)");
-  else k.removeAttribute("transform");
+  const n = `${slag}-${id}`;
+  bsSist[n] = aktiv;              // anlegget har talt: dette er fasit
+  clearTimeout(bsVent[n]);        // bekreftet, vakthunden kan hvile
+  delete bsVent[n];
+  bsStill(k, aktiv);
+}
+
+// Legg om nå, og la den fjære tilbake om ingen bekreftelse kommer.
+function bsProv(slag, id, ned) {
+  const k = document.getElementById(`bs-kn-${slag}-${id}`);
+  if (!k) return;
+  const n = `${slag}-${id}`;
+  bsStill(k, ned);
+  clearTimeout(bsVent[n]);
+  bsVent[n] = setTimeout(() => {
+    delete bsVent[n];
+    bsStill(k, !!bsSist[n]);
+  }, BSVENTSTART);
 }
 function bsDytt(slag, id, retn) {
   const opp = retn === "opp";
   if (slag === "veksel") {
-    // sporvekselstiller (blå, tilbakefjærende): opp = normal (+),
-    // ned = avvik (−). Kontrollampene sitter på transparenten.
-    pub(`sporveksel/${id}/set`, opp ? "normal" : "avvik");
+    // Sporvekselstilleren er den ENESTE som kan legges begge veier:
+    // «De kan legges 45° opp eller ned og går automatisk tilbake til
+    // normalstilling når de slippes» (ORV 3.3.4). Fjæren er selve
+    // betjeningsmåten — «sporvekselstilleren holdes omlagt inntil
+    // amperemeteret gjør utslag».
+    //
+    // Retningen er IKKE fast: den følger sporplanen. Går avviksgreina
+    // oppover i tegningen, legges stilleren opp for avvik; går den
+    // nedover, legges den ned. Skiltene over og under viser det
+    // samme, og begge deler kommer fra VAVVIKOPP.
+    const avvikOpp = VAVVIKOPP[id] !== false;
+    pub(`sporveksel/${id}/set`, (opp === avvikOpp) ? "avvik" : "normal");
     const k = document.getElementById(`bs-kn-veksel-${id}`);
     if (k) {
-      k.setAttribute("transform", `translate(0,${opp ? -14 : 14})`);
-      setTimeout(() => k.removeAttribute("transform"), 250);
+      k.setAttribute("transform", `translate(0,${opp ? -BSUTSLAG : BSUTSLAG})`);
+      bsVekselHold(id);
     }
   } else if (slag === "skift") {
-    // skiftesignalstiller (rød, blir stående): ned = skifting
-    // tillatt, tilbake = slukket. Stillingen følger state-emnet.
+    bsProv(slag, id, !opp);
+    // Skiftesignalstiller (rød): «Stilleren kan bare legges 45° ned,
+    // og blir liggende omlagt inntil den legges tilbake» — nede viser
+    // signalet «Skifting tillatt» (ORV 3.3.3).
     pub(`skiftesignal/${id}/set`, opp ? "slukket" : "skifting-tillatt");
   } else if (slag === "samlelaas" || slag === "rigel") {
-    // frigiverstiller (blå, blir stående): ned = frigi, opp = sperr
+    bsProv(slag, id, !opp);
+    // Frigiverstiller (blå): «Frigivingen skjer ved at stilleren
+    // legges 45° ned» (ORV 3.3.9).
     pub(`${slag}/${id}/set`, opp ? "sperr" : "frigi");
   } else if (slag === "lok") {
-    // Lok-frigivning (gul, blir stående). NB: master har foreløpig
-    // bare sim-banen for frigivning — samme historikk som stillerne
-    // hadde før /lagt; døpes om når det trengs.
+    bsProv(slag, id, !opp);
+    // Lok-frigivning (gul): «Frigiving skjer ved at stillerne legges
+    // 45° ned» (ORV 3.3.8). NB: master har foreløpig bare sim-banen
+    // for frigivning — samme historikk som stillerne hadde før /lagt.
     pub(`frigivning/${id}/sim`, opp ? "av" : "paa");
   }
 }
+// VEKSELSTILLEREN BLIR LIGGENDE til drivmaskinen er ferdig, ikke i
+// et fast antall millisekunder: «sporvekselstilleren holdes omlagt
+// inntil amperemeteret gjør utslag» (ORV 3.3.4). Hånda slipper når
+// maskinen har gjort sitt, og det er nettopp det tilstanden forteller.
+//
+// id -> { sett: har vi sett «omlegging» ennå, vakt: timeout }
+const VSPAK = {};
+
+function bsVekselFrist() {
+  // Samme frist som master gir drivmaskinen, pluss litt for
+  // meldingsvei. Tidslåsene er konfigurerbare, så den leses – den
+  // skal ikke stå to steder.
+  const v = Number(((K.anlegg || {}).tider || {}).veksel_timeout_ms);
+  return (Number.isFinite(v) && v > 0 ? v : 5000) + 500;
+}
+
+function bsVekselHold(id) {
+  // Vakthunden er ikke pynt. Blir omleggingen avvist av forriglingen,
+  // eller står vekselen allerede der den ble kommandert, kommer det
+  // ingen ny tilstand — og uten den ville stilleren blitt stående
+  // omlagt for godt.
+  const h = VSPAK[id];
+  if (h) clearTimeout(h.vakt);
+  VSPAK[id] = { sett: false,
+                vakt: setTimeout(() => bsVekselSlipp(id), BSVENTSTART) };
+}
+
+function bsVekselSlipp(id) {
+  const h = VSPAK[id];
+  if (!h) return;
+  clearTimeout(h.vakt);
+  delete VSPAK[id];
+  const k = document.getElementById(`bs-kn-veksel-${id}`);
+  if (k) k.removeAttribute("transform");
+}
+
+function bsVekselTilstand(id, pl) {
+  const h = VSPAK[id];
+  if (!h) return;                 // ingen stiller står omlagt
+  if (pl !== "omlegging") { bsVekselSlipp(id); return; }
+  // Maskinen gikk i gang. Nå gjelder den lange fristen — helt til
+  // vekselen melder en annen tilstand, eller master gir opp.
+  h.sett = true;
+  clearTimeout(h.vakt);
+  h.vakt = setTimeout(() => bsVekselSlipp(id), bsVekselFrist());
+}
+
+// VISEREN BEVEGER SEG SOM EN VISER. Et dreiespoleinstrument har
+// masse og fjær: nåla kastes forbi utslaget og faller tilbake før den
+// blir stående. En CSS-overgang gir en jevn oppbremsing UTEN
+// oversving, og det leser som av og på — teknisk sett en animasjon,
+// men ikke en bevegelse.
+//
+// Her regnes stillingen ut hvert bilde som et dempet fjærsystem:
+//   akselerasjon = AMPK * (mål - vinkel) - AMPD * fart
+// Lett underdempet, så det blir ett tydelig oversving og ro etter et
+// drøyt halvsekund — som nåla på et instrument som får strøm.
+// Hvilestillingen er slik viseren er tegnet, oppe til venstre. Derfra
+// til motsatt ytterstilling er det 92 grader. En drivmaskin som går
+// slår ikke måleren i bunn, så utslaget stopper før enden.
+//
+// De står HER, ikke inne i bygg(): ampSteg er en global funksjon og
+// trenger AMPFULLT til anslagene.
+const AMPFULLT = 92, AMPUTSLAG = 74;
+const AMPK = 190, AMPD = 17;
+// STARTSTRØMMEN. En drivmaskin trekker mye mer i det den setter seg i
+// bevegelse enn når den går: rotoren står stille, og strømmen er bare
+// begrenset av viklingsmotstanden. Måleren slås i bunn et øyeblikk og
+// legger seg så ned på gangstrømmen. Uten dette står viseren rolig på
+// ett tall så lenge maskinen går, og det er ikke det man ser.
+const AMPSTART = AMPFULLT, AMPSTARTMS = 220;
+let ampVinkel = 0, ampFart = 0, ampMaal = 0, ampSist = 0, ampGaarNaa = false;
+let ampGangTimer = 0;
+
+function ampNullstill() {   // ny tegning: nåla står i ro på null
+  clearTimeout(ampGangTimer); ampGangTimer = 0;
+  ampVinkel = ampFart = ampMaal = 0;
+  ampGaarNaa = false;
+}
+
+function ampSteg(naa) {
+  // Taket på dt: står fanen i bakgrunnen, kommer det ett bilde etter
+  // mange sekunder, og uten taket ville nåla fått et digert sprang.
+  const dt = Math.min((naa - ampSist) / 1000, 0.05);
+  ampSist = naa;
+  ampFart += (AMPK * (ampMaal - ampVinkel) - AMPD * ampFart) * dt;
+  ampVinkel += ampFart * dt;
+  // ANSLAGENE. Et instrument har en stopper i hver ende: nåla hviler
+  // mot den ved null og kan ikke svinge forbi fullt utslag. Uten dem
+  // dro oversvingen nåla 4,4 grader UNDER null når strømmen falt —
+  // ut av skalaen, der den på et virkelig instrument ville ligget an
+  // mot pinnen. Stopperen tar farten; den spretter ikke.
+  if (ampVinkel < 0) { ampVinkel = 0; if (ampFart < 0) ampFart = 0; }
+  else if (ampVinkel > AMPFULLT) {
+    ampVinkel = AMPFULLT; if (ampFart > 0) ampFart = 0;
+  }
+  const g = document.getElementById("pl-amp");
+  if (!g) { ampGaarNaa = false; return; }     // tegningen bygget om
+  // I ro: legg fra oss målet nøyaktig og slutt å tegne. Panelet står
+  // på en Pi, og en viser som ikke rører seg skal ikke koste strøm.
+  if (Math.abs(ampMaal - ampVinkel) < 0.05 && Math.abs(ampFart) < 0.5) {
+    ampVinkel = ampMaal; ampFart = 0; ampGaarNaa = false;
+    g.setAttribute("transform", `rotate(${ampMaal})`);
+    return;
+  }
+  g.setAttribute("transform", `rotate(${ampVinkel.toFixed(2)})`);
+  requestAnimationFrame(ampSteg);
+}
+
+function ampVekk() {            // sett løkka i gang om den sover
+  if (ampGaarNaa) return;
+  ampGaarNaa = true;
+  ampSist = performance.now();
+  requestAnimationFrame(ampSteg);
+}
+
+// paa = trekker en drivmaskin strøm nå?
+function ampSett(paa) {
+  clearTimeout(ampGangTimer); ampGangTimer = 0;
+  if (!paa) {
+    ampMaal = 0;
+  } else {
+    // Startstrøm først, så gangstrøm. Setter en maskin til seg i
+    // gang mens den første går, begynner støtet på nytt — det er
+    // riktig, det er en ny rotor som står stille.
+    ampMaal = AMPSTART;
+    ampGangTimer = setTimeout(() => {
+      ampGangTimer = 0; ampMaal = AMPUTSLAG; ampVekk();
+    }, AMPSTARTMS);
+  }
+  ampVekk();
+}
+
 function bsKnappTrykk(navn) {
   const k = document.getElementById(`bs-knapp-${navn}`);
   if (k) {
-    k.setAttribute("r", "8");
-    setTimeout(() => k.setAttribute("r", "10"), 150);
+    k.setAttribute("r", BSKNAPP - BSKNAPPINN);
+    setTimeout(() => k.setAttribute("r", BSKNAPP), 150);
   }
 }
 function bsJord() {          // sort trykknapp: kvitter jordfeil
@@ -850,14 +987,33 @@ function byggPlan(fns) {
   for (const v of Object.values(vx))
     for (const p of [v.pluss, v.minus])
       if (p && p.veksel) iKjede.add(p.veksel);
-  // row0-røtter på hver side, utover mot enden: hals ytterst
+  // row0-røtter på hver side, utover mot enden: hals ytterst.
+  //
+  // En rot er en veksel INGEN peker på, som ligger i hovedsporet.
+  // Kilden er tegnefeltene: plussgreina lander i et togspor på rad 0,
+  // og spissen sier hvilken stasjonsende den hører til.
+  //
+  // Togveitabellen er nødhjelp for konfiger uten utfylte tegnefelt —
+  // og den er en felle, av samme grunn som «kyss»-nødhjelpen lenger
+  // nede: da de håndstilte vekslene ble flyttet ut av togveiene og
+  // over i låsekravet, sluttet Sokna veksel 3 å være en rot. Den ble
+  // aldri plassert, og med den forsvant veksel 7 og sidesporene 4 og
+  // 5 fra planen — uten et ord.
   const rot = { v: [], h: [] };
-  for (const [litra, e] of Object.entries(bruk)) {
-    if (litra === hals.v || litra === hals.h) continue;
-    if (iKjede.has(litra)) continue;
-    if (e.normal && rowOf[e.normal.spor] === 0 && e.normal.side)
-      rot[e.normal.side].push(litra);
+  const leggRot = (side, litra) => {
+    if (side !== "v" && side !== "h") return;
+    if (litra === hals.v || litra === hals.h) return;
+    if (iKjede.has(litra)) return;
+    if (rot.v.includes(litra) || rot.h.includes(litra)) return;
+    rot[side].push(litra);
+  };
+  for (const [litra, v] of Object.entries(vx)) {
+    const sp = v.pluss && v.pluss.spor;
+    if (sp && rowOf[sp] === 0) leggRot(v.spiss, litra);
   }
+  for (const [litra, e] of Object.entries(bruk))
+    if (e.normal && rowOf[e.normal.spor] === 0)
+      leggRot(e.normal.side, litra);
   /* ---- posisjoner (rad, x i modulenheter) ---- */
   // Vestkjeden legges først (x fra 2 og østover), så østsiden.
   const settPos = (l, rad, x) => { if (vx[l]) vx[l].pos = { rad, x }; };
@@ -891,6 +1047,16 @@ function byggPlan(fns) {
     while (neste && vx[neste] && !gaatt.has(neste)) {
       gaatt.add(neste);
       const nv = vx[neste];
+      // Sporet plussgreina lander på. FASITEN er vekselens eget
+      // «pluss_til» — togveitabellen er bare en nødhjelp for konfiger
+      // der tegnefeltet aldri ble fylt ut.
+      //
+      // Nødhjelpen er en felle: den holdt spor 02 på Sokna oppe helt
+      // til de håndstilte vekslene ble flyttet ut av togveiene og over
+      // i låsekravet. Da forsvant «bruk», veksel 5 sto uten pluss_til,
+      // og 02 ble tegnet som en stubb med litra, lamper og
+      // togveistiller oppå hverandre. HAL-UI advarer nå om togspor med
+      // bare én veksel i endene — men kilden skal være tegnefeltet.
       const kyss = (nv.pluss && nv.pluss.spor) ||
                    (bruk[neste] && bruk[neste].normal &&
                     bruk[neste].normal.spor) || null;
@@ -998,7 +1164,19 @@ function byggPlan(fns) {
     minRad = Math.min(minRad, v.pos.rad);
     maksRad = Math.max(maksRad, v.pos.rad);
   }
-  const topp = 46, bunn = 46;
+  // Hvit marg over og under sporplanen.
+  //
+  // Toppen er ren luft: det eneste som stikker opp over øverste rad er
+  // sporets litra, 27 px over sporlinjen, og maksRad er alltid minst 1
+  // — signalmastene over hovedsporet rekker aldri opp i margen.
+  //
+  // Bunnen er IKKE ren luft når hovedsporet er nederste rad: da henger
+  // mastene for vestgående signaler, togveilampen og den sorte
+  // trykknappen ned i den, 63 px under sporlinjen. Ligger det sidespor
+  // under (Sokna: spor 4 og 5), står de samme mastene inne i planen og
+  // margen kan være like smal som toppen.
+  const topp = 23;
+  const bunn = minRad === 0 ? 46 : 23;
   const W = nCol * MW, H = topp + (maksRad - minRad + 1) * MH + bunn;
   const Y = rad => topp + (maksRad - rad) * MH + SY;
   const X = c => c * MW;
@@ -1092,18 +1270,27 @@ function byggPlan(fns) {
   // og retningsmerking på hver side
   const stillerSym = (litra, xm, yv) => {
     const [vT, hT] = stillerTekster(litra);
+    // Samme spor og samme utslag som stillerne i betjeningsfeltet,
+    // bare lagt vannrett: dette ER samme slags stiller, den ligger
+    // bare på planen og legges til sidene i stedet for ned.
+    const ytre = BSUTSLAG + BSKNOTT;
     return `<g class="pltvs" id="pl-tvs-${litra}">` +
-      `<rect x="${xm - 30}" y="${yv - 14}" width="30" height="28" ` +
+      bsSpor(xm, yv, true) +
+      `<rect x="${xm - ytre}" y="${yv - 14}" width="${ytre}" height="28" ` +
       `fill="transparent" onclick="plDytt('${litra}','v')"/>` +
-      `<rect x="${xm}" y="${yv - 14}" width="30" height="28" ` +
+      `<rect x="${xm}" y="${yv - 14}" width="${ytre}" height="28" ` +
       `fill="transparent" onclick="plDytt('${litra}','h')"/>` +
-      `<circle class="knott" cx="${xm}" cy="${yv}" r="9" ` +
+      `<circle class="knott" cx="${xm}" cy="${yv}" r="${BSKNOTT}" ` +
       `pointer-events="none"/>` +
+      // Merkingen OVER båndet, ikke ved siden av stilleren: sporet
+      // opptar nå bredden der den lå, og lenger ut kolliderer den med
+      // feltlitraene. Over båndet er den fri, og den står fortsatt
+      // ved sin egen side av stilleren.
       (vT ? `<text class="plnavn" text-anchor="end" ` +
-            `pointer-events="none" x="${xm - 16}" y="${yv + 4}">` +
+            `pointer-events="none" x="${xm - 6}" y="${yv - 12}">` +
             `${vT}</text>` : "") +
       (hT ? `<text class="plnavn" pointer-events="none" ` +
-            `x="${xm + 16}" y="${yv + 4}">${hT}</text>` : "") +
+            `x="${xm + 6}" y="${yv - 12}">${hT}</text>` : "") +
       `</g>`;
   };
   // LINJEFELTENE tegnes som togsporene: to lamper med litra på
@@ -1138,9 +1325,9 @@ function byggPlan(fns) {
     // togveilampe og sort trykknapp tegnes ETTER mastene
     // (kollisjonssjekk mot dem) — her noteres bare ønsket plass
     knapper.push({ lf: f.id, xm, o, i, linjeblokk: !!f.linjeblokk });
-    return `<circle id="pl-fl-${f.id}" class="pl" style="color:#ffb400" ` +
+    return `<circle id="pl-fl-${f.id}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xu}" cy="${yv}" r="6"/>` + t(xu, d) +
-      `<circle id="pl-fl-${f.id}-b" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-fl-${f.id}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xi}" cy="${yv}" r="6"/>` + t(xi, -d) +
       stillerSym(f.id, xm, yv) +
       // (blå togveilampe + sort trykknapp tegnes ETTER mastene, i
@@ -1181,9 +1368,26 @@ function byggPlan(fns) {
     tvFri = tvFri
       ? [Math.max(tvFri[0], f[0]), Math.min(tvFri[1], f[1])] : f;
   }
-  const tvXa = X(tvFri[0] + (tvFri[1] - tvFri[0]) * 0.22);
-  const tvXb = X(tvFri[1] - (tvFri[1] - tvFri[0]) * 0.22);
-  const tvXm = X((tvFri[0] + tvFri[1]) / 2);
+  // Lampene og togveistilleren står MIDT PÅ SIDEN — samme loddrette
+  // linje som signalstopplampa og amperemeteret nede på
+  // betjeningsfeltet (begge på W/2). Før sto de midt på sporets frie
+  // strekning, og den er sjelden midt på siden: på Sokna 24 piksler
+  // til venstre. Da mistet apparatet den ene linja som binder
+  // sporplanen og betjeningsfeltet sammen.
+  //
+  // Faller midtlinja utenfor den frie strekningen — et anlegg der
+  // stasjonen ligger skjevt i planen — går vi tilbake til
+  // strekningens egen midte. Heller usentrert enn oppå en veksel.
+  const tvFriA = X(tvFri[0]), tvFriB = X(tvFri[1]);
+  const tvRom = Math.min(W / 2 - tvFriA, tvFriB - W / 2);
+  const tvPaaMidten = tvRom > 0;
+  const tvXm = tvPaaMidten ? W / 2 : (tvFriA + tvFriB) / 2;
+  // Lampene sto 22 % inn fra hver ende, altså 0,56 av halvbredden fra
+  // midten. Regnet fra den TRANGESTE halvdelen blir de liggende
+  // innenfor båndet på begge sider, også når midtlinja ligger utenfor
+  // strekningens egen midte.
+  const tvHalv = (tvPaaMidten ? tvRom : (tvFriB - tvFriA) / 2) * 0.56;
+  const tvXa = tvXm - tvHalv, tvXb = tvXm + tvHalv;
   const tegnTogspor = (sid, rad) => {
     const yv = Y(rad);
     const xa = tvXa, xb = tvXb, xm = tvXm;
@@ -1195,10 +1399,10 @@ function byggPlan(fns) {
     const gV = grenseV(rad, m0, "v"), gH = grenseV(rad, m0, "h");
     return (gV ? skille(X(vx[gV].pos.x) + skAvst(gV, false), rad) : "") +
       (gH ? skille(X(vx[gH].pos.x) - skAvst(gH, true), rad) : "") +
-      `<circle id="pl-fl-${sid}" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-fl-${sid}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xa}" cy="${yv}" r="6"/>` +
       `<text class="pltekst" x="${xa + 12}" y="${yv + 4}">${sid}</text>` +
-      `<circle id="pl-fl-${sid}-b" class="pl" style="color:#ffb400" ` +
+      `<circle id="pl-fl-${sid}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xb}" cy="${yv}" r="6"/>` +
       `<text class="pltekst" text-anchor="end" x="${xb - 12}" ` +
       `y="${yv + 4}">${sid}</text>` +
@@ -1225,7 +1429,7 @@ function byggPlan(fns) {
     }
     const harLampe = (feltAv[sid] || {}).rolle !== "spor";
     if (harLampe)
-      s += `<circle id="pl-fl-${sid}" class="pl" style="color:#ffb400" ` +
+      s += `<circle id="pl-fl-${sid}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${X((x1 + x2) / 2)}" cy="${Y(rad)}" r="6"/>`;
     // spornummer SENTRERT på sporet i x-retningen, over båndet
     s += `<text class="pltekst" text-anchor="middle" ` +
@@ -1316,13 +1520,13 @@ function byggPlan(fns) {
         if ((t.sporveksler || []).some(v => v.sporveksel === litra) &&
             t.utlosningsfelt) { vFeltAv[litra] = t.utlosningsfelt; break; }
       lamper =
-        `<circle id="pl-vn-${litra}" class="pl" style="color:#ffb400" ` +
+        `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${px + pd * 22}" cy="${py}" r="6"/>` +
-        `<circle id="pl-va-${litra}" class="pl" style="color:#ffb400" ` +
+        `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${px + mx * 26}" cy="${py + my * 26}" r="6"/>` +
         (vFeltAv[litra]
           ? `<circle id="pl-vfb-${litra}" class="pl" ` +
-            `style="color:#ffb400" cx="${px}" cy="${py}" r="6"/>`
+            `style="${lampeStil('#ffb400')}" cx="${px}" cy="${py}" r="6"/>`
           : ``);
     }
     // litra i første ledige kvadrant (aldri oppå et sporbånd)
@@ -1353,7 +1557,7 @@ function byggPlan(fns) {
     const base = side === "v" ? X(0) : nCol * MW;
     const d = side === "v" ? 1 : -1;      // +1 = innover mot øst
     const px = base - d * 150;
-    s += `<circle id="pl-vfl-${vf.id}" class="pl" style="color:#ffb400" ` +
+    s += `<circle id="pl-vfl-${vf.id}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${px}" cy="${Y(0)}" r="6"/>` +
       // litra UTENFOR båndet, sentrert over lampa
       `<text class="pltekst" text-anchor="middle" x="${px}" ` +
@@ -1566,11 +1770,11 @@ function byggPlan(fns) {
         const rot = l.form === "strek42"
           ? ` transform="rotate(-45 ${cx} ${m.py})"` : "";
         c = `<rect${l.id ? ` id="${l.id}"` : ""} class="pl" ` +
-          `style="color:${l.farge}" x="${cx - 2}" y="${m.py - 6}" ` +
+          `style="${lampeStil(l.farge)}" x="${cx - 2}" y="${m.py - 6}" ` +
           `width="4" height="12" rx="1.5"${rot}/>`;
       } else {
         c = `<circle${l.id ? ` id="${l.id}"` : ""} class="pl"` +
-          ` style="color:${l.farge}" cx="${cx}" cy="${m.py}" r="6"/>`;
+          ` style="${lampeStil(l.farge)}" cx="${cx}" cy="${m.py}" r="6"/>`;
       }
       lamper += c;
     });
@@ -1613,14 +1817,14 @@ function byggPlan(fns) {
         if (!inne(a) && !inne(b2)) break;   // ingen fri plass: xm
       }
     }
-    s += `<circle id="pl-tv-${k.lf}" class="pl" style="color:#1f8fff" ` +
+    s += `<circle id="pl-tv-${k.lf}" class="pl" style="${lampeStil('#1f8fff')}" ` +
       `cx="${kx}" cy="${ly}" r="6"/>`;
     if (medKnapp)
       s += `<g class="plknapp" id="pl-kn-${k.lf}" ` +
         `onclick="plKnapp('${k.lf}')">` +
         `<rect x="${kx - 12}" y="${ky - 12}" width="24" height="24" ` +
         `fill="transparent"/>` +
-        `<circle class="knhode" cx="${kx}" cy="${ky}" r="7"/></g>`;
+        `<circle class="knhode" cx="${kx}" cy="${ky}" r="${BSKNAPP}"/></g>`;
   }
   /* sperrene: på sporet/forbindelsen de ligger i */
   const sperrer = fns.filter(f => f.type === "sporsperre");
@@ -1705,7 +1909,12 @@ function byggPlan(fns) {
   let losX = 8;
   for (const l of rigler) {
     const sp = (l.omfatter || []).find(o => sperrePos[o]);
-    const p = sp ? sperrePos[sp] : { x: losX += 170, y: topp - 20 };
+    // Nødplassering når rigelen ikke omfatter en TEGNET sperre: en
+    // rad oppe til venstre. Fast y — den var regnet ut fra toppmargen,
+    // og da margen ble halvert havnet lampa utenfor lerretet. (At en
+    // sperre ikke lar seg plassere er uansett en konfigfeil; HAL-UI
+    // sier fra om vekselen den ligger i ikke blir tegnet.)
+    const p = sp ? sperrePos[sp] : { x: losX += 170, y: 36 };
     s += pbl.rigel(p.lx !== undefined ? p.lx : p.x + 24,
                    p.ly !== undefined ? p.ly : p.y - 16,
                    l.id, l.navn || l.id);
@@ -1734,7 +1943,9 @@ function byggPlan(fns) {
       const over = mv.pos.rad >= 0;   // sør for hovedsporet: under
       p = { x: tx - 11, y: Y(mv.pos.rad) + (over ? -48 : 26) };
     } else {
-      p = { x: losX += 170, y: topp - 30 };
+      // Samme nødplassering som rigelen over, og av samme grunn fast:
+      // ingen av låsens objekter ble tegnet.
+      p = { x: losX += 170, y: 26 };
     }
     s += pbl.noekkelfelt(p.x, p.y, l.id, l.navn || l.id);
   }
@@ -1839,11 +2050,120 @@ function byggPlan(fns) {
      frigivning av samlelås/rigel BLÅ (blir stående), Lok-frigivning
      GULE, Jord sort og Sign.stp rød trykknapp med felles kontrollampe
      (signalstopp/jordfeil), amperemeter i midten. */
+  // AVVIKSRETNINGEN per veksel, lest av tegningen. Minusgreina er
+  // avviket; lander den på en rad LENGER OPP enn vekselen selv, er
+  // avvik oppover. (Høyere rad-tall = høyere på skjermen, se Y().)
+  // Ligger greinene i linje, eller finnes ingen kant, blir det
+  // stående som før: avvik oppover.
+  for (const litra of Object.keys(vx)) {
+    const v = vx[litra];
+    if (!v || !v.pos) { VAVVIKOPP[litra] = true; continue; }
+    const k = kanter.find(e => e.veksel === litra && e.port === "minus" &&
+                               e.fra.rad === v.pos.rad &&
+                               e.fra.x === v.pos.x);
+    VAVVIKOPP[litra] = !k || k.til.rad === v.pos.rad
+                         ? true : k.til.rad > v.pos.rad;
+  }
   const bsSkiftL = fns.filter(f =>
     String(f.type).startsWith("skiftesignal"));
   const bsVeksL = Object.keys(vSentral).filter(l => vSentral[l])
     .sort((a, b) => a.localeCompare(b, "nb", { numeric: true }));
-  const BSH = 150, bsY0 = H, bsCy = H + 78;
+  // Betjeningsapparatet har FAST høyde på alle anlegg: apparatet er
+  // like stort enten stasjonen har to spor eller seks. Sporplanen over
+  // (H) er den som vokser, med antall rader.
+  //
+  // Selve apparatet bruker BSINNHOLD av høyden — lampe, knapperad,
+  // amperemeter og stillere med etikett. Resten er luft, fordelt likt
+  // over og under, så apparatet står midt på panelflaten. Skal det i
+  // stedet ligge tett under sporplanen, er bsY0 = H.
+  // Vekselstillerne har skilt både over og under: normal (+) over,
+  // avvik (−) under. Det øverste rekker BSOVER px opp forbi
+  // referansepunktet, og det må med i sentreringen.
+  // AMPEREMETERET er tegnet i Affinity (grafikk/stillverk/
+  // amperemeter.svg) og flatet ut hit: transformene fra
+  // tegneprogrammet er regnet inn i koordinatene, så figuren står i
+  // et rent 357x287-rom. Da er utslaget én rotate() om lageret, og
+  // ingenting annet må røres for å flytte viseren.
+  //
+  // Bøylen er ETT omriss med hull (evenodd), med utsparing nederst
+  // for viserlageret. Skiva males først i rammens form, så legges
+  // bøylen oppå — det som blir igjen av lyst er nettopp vinduet.
+  const AMPB = 357, AMPH = 287;
+  const AMPRAMME = [1.04747, 1.35879, 354.616, 283.465, 17.7164];
+  const AMPPIV = [178.355, 208.897];
+  // Viseren er flyttet så dreiepunktet ligger i origo.
+  const AMPVISER = "M-83.344,-86.394L2.875,-2.971L-2.875,2.971L-89.094,-80.452L-91.809,-88.832L-83.344,-86.394Z";
+  const AMPBOYLE = "M355.66,19.08L355.66,267.11C355.66,276.89 347.73,284.82 337.95,284.82L18.76,284.82C8.99,284.82 1.05,276.89 1.05,267.11L1.05,19.08C1.05,9.3 8.99,1.36 18.76,1.36L337.95,1.36C347.73,1.36 355.66,9.3 355.66,19.08ZM205.88,190.7L302.45,190.7C312.23,190.7 320.16,182.76 320.16,172.98L320.16,54.87C320.16,45.09 312.23,37.16 302.45,37.16L54.26,37.16C44.49,37.16 36.55,45.09 36.55,54.87L36.55,172.98C36.55,182.76 44.49,190.7 54.26,190.7L150.83,190.7C156.74,181.78 166.87,175.9 178.36,175.9C189.84,175.9 199.97,181.78 205.88,190.7Z";
+  const AMPMERKE = [["M62.5,148.4C62.5,148.1 62.4,147.8 62.4,147.5C62.4,146.4 62.4,134.7 62.5,133.2C62.5,133 62.5,132.6 62.5,132C62.7,131.1 62.9,130.4 63.2,129.8C63.3,129.5 63.4,129.2 63.6,128.9C63.6,128.9 63.6,128.9 63.7,128.8C64,128.1 64.5,127.6 64.9,127C65,126.9 65.1,126.8 65.2,126.7L65.3,126.7C65.4,126.6 65.5,126.5 65.6,126.4C69.2,123.1 75.1,123.1 78.6,126.8C78.8,127 79,127.3 79.3,127.6C79.5,127.8 80.3,128.9 80.9,130.8C81.2,131.6 81.2,131.8 81.3,133.6C81.3,135 81.3,137.2 81.3,141.1C81.3,143.2 81.3,146.4 81.3,149.8C81.3,150.1 81.3,150.4 81.3,150.7C81.3,151.9 81.3,163.6 81.3,165.1C81.3,165.3 81.3,165.7 81.2,166.2C81.1,167.2 80.8,167.9 80.6,168.5C80.5,168.8 80.3,169 80.2,169.3C80.1,169.4 80.1,169.4 80.1,169.4C79.7,170.2 79.2,170.7 78.8,171.2C78.7,171.3 78.6,171.4 78.5,171.6L78.5,171.6C78.4,171.7 78.3,171.8 78.2,171.9C74.6,175.2 68.7,175.2 65.2,171.4C64.9,171.2 64.7,171 64.5,170.7C64.3,170.4 63.5,169.4 62.8,167.4C62.6,166.7 62.5,166.4 62.5,164.7C62.4,163.3 62.4,161 62.5,157.1C62.5,155.1 62.5,151.9 62.5,148.4ZM66,132.4C65.8,133.6 66,134.5 66.1,134.9C66.5,136.3 67.2,137.7 69.2,138.8C72.4,140.6 77.2,138.8 77.8,134.1C77.8,134 77.9,133.5 77.8,132.9C77.6,130.8 76.3,128.9 74.4,128.1C71.5,126.8 69,128.1 68.2,128.8C67.8,129.1 67.5,129.5 67.2,129.8C66.6,130.6 66.2,131.5 66,132.4ZM77.8,149.1C77.8,148.4 77.7,148 77.7,147.9C77.5,147.2 77.2,146 75.8,144.7C75.6,144.6 74.9,143.9 73.7,143.5C70.9,142.6 67.6,143.8 66.4,146.9C66.1,147.7 65.9,148.4 65.9,149.2C65.9,149.8 66.1,150.2 66.1,150.3C66.3,151.1 66.5,152.3 68,153.6C68.1,153.7 68.9,154.4 70,154.8C72.9,155.7 76.2,154.4 77.4,151.3C77.7,150.6 77.8,149.8 77.8,149.1ZM77.8,165.8C78,164.7 77.7,163.7 77.7,163.3C77.2,161.9 76.6,160.6 74.6,159.5C71.3,157.7 66.6,159.5 66,164.1C65.9,164.3 65.9,164.7 65.9,165.3C66.2,167.4 67.5,169.3 69.3,170.2C72.2,171.5 74.7,170.2 75.6,169.5C76,169.1 76.3,168.8 76.6,168.4C77.2,167.7 77.6,166.8 77.8,165.8Z","evenodd"],["M68.6,129.5C68.6,129.5 68.6,129.6 68.6,129.6L68.5,129.7L68.5,137.1L68.6,137.2C68.7,137.2 68.7,137.3 68.7,137.3L68.8,137.3L69.5,137.3L70.2,137.3L70.2,137.3C70.2,137.2 70.2,137.2 70.2,137.2C70.3,137.1 70.3,137 70.3,136.9C70.3,136.8 70.3,136.2 70.3,136.1C70.3,136.1 70.3,136 70.3,135.9C70.3,135.8 70.3,135.7 70.3,135.6C70.3,135.5 70.3,135.4 70.3,135.3C70.4,135.1 70.4,135.1 70.4,134.5C70.4,134.1 70.4,133.9 70.4,133.8C70.4,133.7 70.4,133.7 70.4,133.6C70.4,133.4 70.4,133.4 70.4,133.3C70.5,133.2 70.6,133.2 70.7,133.3C70.7,133.3 70.8,133.4 71,133.7C71.1,133.9 71.2,134 71.4,134.2C71.5,134.3 71.5,134.3 71.6,134.5C71.7,134.5 71.7,134.6 71.7,134.6C71.8,134.7 71.8,134.8 72,134.9C72,135.1 72.1,135.1 72.2,135.3C72.4,135.5 72.4,135.5 72.5,135.6C72.6,135.8 72.6,135.9 72.7,136C72.8,136.1 72.8,136.1 72.9,136.2C73,136.4 73.1,136.4 73.2,136.6C73.3,136.7 73.3,136.7 73.4,136.8C73.6,137 73.7,137.1 73.8,137.2C73.9,137.2 74,137.2 74,137.2C74.1,137.3 74.2,137.3 74.3,137.2C74.5,137.2 74.6,137.3 74.6,137.3C74.7,137.3 74.7,137.3 74.9,137.3C75.1,137.3 75.1,137.3 75.1,137.3C75.1,137.3 75.1,137.3 75.1,137.3C75.2,137.2 75.2,137.2 75.2,137.2C75.2,137.1 75.2,137.1 75.2,136.7C75.2,136.4 75.2,136.3 75.2,136.3C75.2,136.2 75.2,135.1 75.2,135.1C75.2,135.1 75.2,135 75.2,135C75.2,134.9 75.2,134.8 75.2,134.7C75.2,134.6 75.2,134.6 75.2,134.3C75.2,134.1 75.2,134.1 75.2,133.9C75.2,133.9 75.2,133.7 75.2,133.7C75.2,133.6 75.2,133.6 75.2,133.5C75.2,133.4 75.2,133.3 75.2,133.3C75.2,133.2 75.2,132.8 75.2,131.4L75.2,129.6L75.2,129.6C75.2,129.6 75.1,129.6 75.1,129.6C75,129.5 74.8,129.5 74.6,129.5C74.5,129.5 74.5,129.5 74.4,129.5C74.3,129.5 74.3,129.5 74.2,129.5C74,129.5 74,129.5 73.9,129.5C73.8,129.5 73.7,129.5 73.7,129.5C73.6,129.6 73.5,129.7 73.5,129.8C73.5,129.9 73.5,130.3 73.5,130.5C73.5,130.7 73.5,131.1 73.5,131.1C73.5,131.3 73.5,131.3 73.5,131.5C73.5,131.5 73.5,131.8 73.5,132.3C73.5,133.2 73.5,133.2 73.5,133.3C73.4,133.4 73.4,133.4 73.3,133.4C73.2,133.4 73.2,133.4 73,133.2C73,133.1 72.9,133.1 72.9,133C72.8,132.9 72.7,132.7 72.5,132.6C72.5,132.5 72.4,132.4 72.3,132.3C72.3,132.2 72.2,132.2 72.2,132.1C72.1,132 72,132 72,131.9C71.9,131.8 71.8,131.7 71.7,131.5C71.6,131.4 71.5,131.3 71.4,131.2C71.3,131 71.3,131 71.2,130.8C71.1,130.8 71,130.7 71,130.6C70.8,130.3 70.7,130.2 70.5,130C70.5,130 70.5,129.9 70.4,129.9C70.3,129.7 70.2,129.7 70.1,129.6C70,129.5 70,129.5 70,129.5C70,129.4 70,129.4 69.3,129.4C68.6,129.4 68.6,129.4 68.6,129.5Z","nonzero"],["M71.3,144.9C71.3,145 71.2,145 71,145.1C70.8,145.2 70.7,145.2 70.6,145.3C70.4,145.4 70.4,145.4 70.2,145.6C70,145.7 69.8,145.9 69.8,145.9C69.7,146 69.6,146.2 69.5,146.3C69.4,146.5 69.4,146.7 69.3,146.8C69.3,146.8 69.3,146.9 69.3,147C69.3,147.1 69.3,147.2 69.3,147.2C69.3,147.3 69.3,147.4 69.3,147.5C69.3,147.6 69.3,147.7 69.3,147.8C69.4,147.9 69.4,148 69.4,148C69.4,148.2 69.4,148.2 69.5,148.3C69.5,148.4 69.6,148.5 69.7,148.6C69.7,148.6 69.7,148.7 69.8,148.7C69.9,148.9 69.9,148.9 70.1,149.1C70.1,149.1 70.2,149.1 70.2,149.2C70.4,149.3 70.4,149.3 70.6,149.4C70.7,149.4 70.7,149.5 70.8,149.5C70.9,149.6 71,149.6 71.1,149.7C71.2,149.7 71.2,149.7 71.3,149.8C71.4,149.8 71.5,149.9 71.5,149.9C71.6,149.9 71.7,150 71.8,150.1C71.9,150.1 72,150.2 72.1,150.2C72.1,150.2 72.2,150.3 72.2,150.3C72.3,150.3 72.4,150.4 72.6,150.6C72.7,150.7 72.8,150.8 72.8,151C72.9,151.1 72.9,151.2 72.9,151.3C72.8,151.4 72.7,151.6 72.5,151.7C72.5,151.7 72.4,151.7 72.3,151.7C72.2,151.7 72.2,151.7 72,151.7C71.8,151.7 71.8,151.7 71.7,151.7C71.5,151.7 71.5,151.7 71.3,151.6C71.2,151.5 71.1,151.5 71,151.4C70.7,151.3 70.7,151.2 70.5,151.1C70.4,151 70.3,151 70.2,150.9C70.1,150.8 70,150.8 69.9,150.8C69.8,150.8 69.8,150.9 69.6,151.1C69.6,151.1 69.5,151.2 69.5,151.3C69.3,151.5 69.3,151.5 69.2,151.7C69.1,151.8 69.1,151.9 69,151.9L69,151.9L69,152.1L69,152.3L69,152.3C69.1,152.3 69.1,152.3 69.2,152.4C69.2,152.4 69.2,152.4 69.3,152.5C69.3,152.5 69.4,152.6 69.4,152.6C69.6,152.7 69.6,152.7 69.8,152.8C70,152.9 70,153 70.1,153C70.2,153 70.2,153.1 70.3,153.1C70.4,153.2 70.5,153.2 70.7,153.3C71,153.4 71,153.4 71.2,153.5C71.3,153.5 71.4,153.6 71.5,153.6C71.5,153.6 71.5,153.6 72,153.6C72.5,153.6 72.5,153.6 72.5,153.6C72.5,153.6 72.6,153.5 72.7,153.5C72.8,153.5 72.9,153.4 73,153.4C73.2,153.3 73.2,153.3 73.4,153.2C73.5,153.2 73.5,153.2 73.5,153.2C73.7,153.1 74,152.9 74.2,152.6C74.2,152.5 74.3,152.5 74.3,152.4C74.4,152.3 74.4,152.3 74.4,152.2C74.5,152.2 74.5,152.1 74.5,152C74.6,151.9 74.6,151.8 74.7,151.7C74.7,151.6 74.7,151.5 74.8,151.5L74.8,151.5L74.8,150.6L74.8,150.6C74.7,150.5 74.7,150.5 74.7,150.4C74.6,150.2 74.6,150.1 74.5,149.9C74.5,149.9 74.4,149.7 74.3,149.7C74.3,149.5 74.1,149.4 73.9,149.2C73.8,149.2 73.7,149.1 73.6,149.1C73.6,149 73.5,149 73.5,148.9C73.4,148.9 73.4,148.9 73.3,148.8C73.2,148.7 73.1,148.7 73,148.6C72.8,148.5 72.7,148.5 72.6,148.4C72.3,148.3 72.2,148.2 72,148.1C71.9,148.1 71.8,148 71.7,148C71.5,147.9 71.5,147.8 71.4,147.8C71.2,147.7 71.2,147.6 71.1,147.4C71.1,147.3 71.1,147.2 71.2,147.1C71.2,146.9 71.3,146.8 71.5,146.8C71.5,146.8 71.7,146.7 71.8,146.7C71.9,146.7 72,146.7 72.1,146.7C72.2,146.7 72.2,146.8 72.3,146.8C72.4,146.8 72.5,146.8 72.5,146.8C72.6,146.9 72.7,146.9 72.8,146.9C72.8,146.9 73,147.1 73.2,147.2C73.4,147.3 73.5,147.3 73.6,147.3C73.7,147.3 73.7,147.3 73.8,147.3C73.8,147.2 73.9,147.2 74,147.1C74,147 74.1,146.9 74.2,146.9C74.4,146.6 74.5,146.5 74.5,146.3C74.5,146.3 74.5,146.2 74.4,146.2C74.4,146.1 74.4,146.1 74.3,145.9C74.2,145.9 74.2,145.9 74.2,145.8C74,145.7 74,145.6 73.7,145.5C73.7,145.5 73.6,145.5 73.6,145.4C73.5,145.4 73.4,145.4 73.2,145.2C73,145.2 72.9,145.2 72.8,145.1C72.7,145.1 72.7,145 72.6,145C72.6,145 72.5,145 72.5,145C72.5,145 72.4,145 72.4,144.9C72.4,144.9 72.4,144.9 71.8,144.9C71.3,144.9 71.3,144.9 71.3,144.9Z","nonzero"],["M71.1,160.8C71.1,160.8 71.1,160.8 71,160.9C71,160.9 71,161 70.9,161C70.9,161 70.9,161.1 70.9,161.2C70.9,161.3 70.9,161.3 70.9,161.3C70.9,161.4 70.9,161.4 70.9,161.6C70.9,161.8 70.9,161.8 70.9,161.8C70.9,161.8 70.9,161.8 70.9,161.9C70.9,162 70.9,162 70.9,162C70.9,162.1 70.9,162.1 70.9,162.1C70.9,162.2 70.9,162.2 70.9,162.3C70.9,162.3 70.9,162.3 70.9,163.1C70.9,163.8 70.9,163.8 70.9,163.8C70.9,163.9 70.9,163.9 70.9,164.1C70.9,164.3 70.9,164.3 70.9,164.3C70.9,164.3 70.9,164.3 70.9,164.5C70.9,164.6 70.9,164.6 70.9,164.6C70.9,164.7 70.9,164.7 70.9,164.8C70.9,164.9 70.9,164.9 70.9,164.9C70.9,165 70.9,165 70.9,165.7C70.9,166.3 70.9,166.4 70.9,166.4C70.9,166.4 70.9,166.4 70.9,166.4C70.8,166.4 70.8,166.4 70.8,166.6C70.8,166.8 70.8,166.8 70.9,166.8C70.9,166.8 70.9,166.8 70.9,166.8C70.9,166.8 70.9,166.9 70.9,167.2C70.9,167.6 70.9,167.6 70.9,167.7C70.9,167.7 70.9,167.7 70.9,167.8C70.9,168 70.9,168 70.9,168C70.9,168.1 70.9,168.1 70.9,168.3C70.9,168.6 70.9,168.6 70.9,168.6C70.9,168.7 70.9,168.7 71,168.8C71.1,168.8 71.1,168.8 71.2,168.8C71.2,168.8 71.3,168.8 71.3,168.8C71.3,168.8 71.4,168.8 71.4,168.8C71.5,168.8 71.5,168.8 71.5,168.8C71.6,168.8 71.6,168.8 71.9,168.8C72.2,168.8 72.2,168.8 72.2,168.8C72.2,168.8 72.2,168.8 72.4,168.8C72.6,168.8 72.6,168.8 72.7,168.8C72.7,168.8 72.7,168.8 72.7,168.8C72.7,168.8 72.7,168.8 72.7,168.8C72.8,168.7 72.8,168.7 72.8,168.7C72.8,168.6 72.8,168.6 72.8,168.6C72.9,168.6 72.9,168.5 72.9,167.9C72.9,167.2 72.9,167.2 72.9,167.2C72.9,167.2 72.9,167.2 72.9,166.9C72.9,166.7 72.9,166.7 72.9,166.6C72.9,166.6 72.9,166.6 72.9,166.5C72.9,166.4 72.9,166.4 72.9,166.4C72.9,166.3 72.9,166.3 72.9,165.9C72.9,165.5 72.9,165.5 72.9,165.5C72.9,165.4 72.9,165.4 72.9,165C72.9,164.6 72.9,164.6 72.8,164.5C72.8,164.5 72.8,164.4 72.8,164.4C72.8,164.4 72.9,164.3 72.9,164.3C72.9,164.2 72.9,164.2 72.8,164.2C72.8,164.1 72.8,164.1 72.8,164.1C72.9,164.1 72.9,164.1 72.9,163.5C72.9,163 72.9,163 72.9,162.9C72.9,162.9 72.9,162.9 72.9,162.2C72.9,161.6 72.9,161.6 72.9,161.6C72.9,161.6 72.9,161.6 72.9,161.6C72.9,161.6 72.9,161.6 72.9,161.5C72.9,161.4 72.9,161.4 72.9,161.4C72.9,161.4 72.9,161.3 72.9,161.2C72.9,161.1 72.9,161.1 72.9,161C72.8,160.9 72.8,160.9 72.8,160.9C72.7,160.8 72.7,160.8 72.6,160.8C72.5,160.8 72.5,160.8 72.5,160.8C72.5,160.8 72.5,160.8 72.4,160.8C72.2,160.8 72.2,160.8 72.2,160.8C72.2,160.8 72.2,160.8 72.1,160.8C72,160.8 72,160.8 72,160.8C72,160.8 72,160.8 72,160.8C71.9,160.8 71.9,160.8 71.9,160.8C71.9,160.8 71.8,160.8 71.7,160.8C71.6,160.8 71.6,160.8 71.6,160.8C71.5,160.9 71.5,160.9 71.4,160.9C71.4,160.8 71.3,160.8 71.3,160.8C71.3,160.8 71.3,160.8 71.3,160.8C71.3,160.8 71.3,160.8 71.2,160.8C71.1,160.8 71.1,160.8 71.1,160.8Z","nonzero"],];   // A/S Norsk Signalindustri
+  const AMPTEKST = ["A", 169.497, 133.489, 30.0858];
+  const BSH = 300, BSOVER = 24, BSINNHOLD = 180 + BSOVER;
+  // Snittfargen i hammerlakkfotoet. Ligger under mønsteret, så
+  // flaten har riktig kulør også før bildet er lastet — og om det
+  // aldri kommer.
+  const HAMMERGRUNN = "#3b888d";
+  // SKILTENE: sort skrift på hvit plate med svakt avrundede hjørner,
+  // som forbildets graverte skilt. Kvadratiske for alt som står i
+  // spakrasteret; rektangulære for Jord og Sign.stp, som har lengre
+  // tekst og ikke er stillere.
+  //
+  // Skriften har en STANDARDSTØRRELSE. Er én linje for lang for
+  // platen, krympes nettopp DEN linjen — ikke hele skiltet. Det gir
+  // «Ri.» i full størrelse over et mindre «Sp.III/5», i stedet for at
+  // et langt objektnavn drar hele påskriften ned.
+  //
+  // Bredden må ANSLÅS her, for skiltet bygges som streng før det
+  // finnes i DOM-en: monospace-reserven gir ca. 0,6 em per tegn.
+  const BSSKILT = 52, BSSKRIFT = 12, BSMINSKRIFT = 7;
+  const bsRaaSkrift = (linje, bredde) =>
+    Math.floor((bredde - 6) / (0.6 * Math.max(1, linje.length)));
+  const bsLinjeSkrift = (linje, bredde) =>
+    Math.max(BSMINSKRIFT, Math.min(BSSKRIFT, bsRaaSkrift(linje, bredde)));
+  // navn kan være en STRENG som brytes til linjer, eller en ferdig
+  // LISTE av linjer — vekselstillerens skilt er «litra» over «+».
+  const bsSkilt = (cx, cy, w, h, navn) => {
+    if (Array.isArray(navn)) return bsPlate(cx, cy, w, h, navn.slice());
+    // Del på mellomrom — det er ordene skiltet naturlig brytes i.
+    // Blir en linje så lang at den må UNDER minstestørrelsen, brytes
+    // den videre ved «/» (skiller sperren fra vekselen) eller etter
+    // forkortelsespunktum, og bare som siste utvei midt i et ord.
+    let linjer = String(navn).split(/\s+/).filter(Boolean);
+    if (!linjer.length) linjer = [String(navn)];
+    for (let i = 0; i < linjer.length && i < 8; i++) {
+      while (bsRaaSkrift(linjer[i], w) < BSMINSKRIFT &&
+             linjer[i].length > 1) {
+        const maks = Math.max(1,
+          Math.floor((w - 6) / (0.6 * BSMINSKRIFT)));
+        const o = linjer[i];
+        let k = o.lastIndexOf("/", maks);
+        if (k <= 0) {
+          const pkt = o.lastIndexOf(".", maks - 1);
+          k = pkt > 0 ? pkt + 1 : -1;
+        }
+        if (k <= 0) k = maks;
+        if (k >= o.length) break;
+        linjer.splice(i, 1, o.slice(0, k), o.slice(k));
+      }
+    }
+    return bsPlate(cx, cy, w, h, linjer);
+  };
+  const bsPlate = (cx, cy, w, h, linjer) => {
+    const hoyder = linjer.map(l => bsLinjeSkrift(l, w) + 2);
+    let y = cy - hoyder.reduce((a, b) => a + b, 0) / 2;
+    const tekst = linjer.map((l, i) => {
+      const fs = bsLinjeSkrift(l, w);
+      const base = y + fs * 0.78 + 1;
+      y += hoyder[i];
+      return `<text class="bsskilt"` +
+        (fs === BSSKRIFT ? "" : ` style="font-size:${fs}px"`) +
+        ` x="${cx}" y="${base}">${l}</text>`;
+    }).join("");
+    return `<rect class="bsplate" x="${cx - w / 2}" y="${cy - h / 2}" ` +
+      `width="${w}" height="${h}" rx="3"/>` + tekst;
+  };
+  const bsY0 = H + (BSH - BSINNHOLD) / 2 + BSOVER;
+  const bsCy = bsY0 + 78;
+  const bsSkiltCy = bsCy + 76;            // skiltraden under stillerne
+  const bsSkiltOverCy = 2 * bsCy - bsSkiltCy;   // speilet, over dem
   // Amperemeteret står SENTRERT på panelet, Jord og Sign.stp. ved
   // siden av hverandre OVER det. Stillerne fordeles til venstre og
   // høyre for midten etter hvilken side av transparenten objektet
@@ -1865,93 +2185,223 @@ function byggPlan(fns) {
     }
     return "v";
   };
+  // Rekkefølgen INNENFRA og ut er apparatets egen: samlelås, rigel,
+  // Lok-frigivning, vekselstiller, skiftesignal. Den er ikke utledet
+  // av noe — den ER oppstillingen, og listen her er kilden.
   const bsSide = side => {
     const ut = [];
     for (const l of laaser)
       if (bsLaasSide(l) === side)
         ut.push({ slag: "samlelaas", id: l.id, farge: "#2b6fc2",
-                  navn: l.navn || l.id, w: 88 });
+                  navn: l.navn || l.id });
     for (const l of rigler)
       if (bsLaasSide(l) === side)
         ut.push({ slag: "rigel", id: l.id, farge: "#2b6fc2",
-                  navn: l.navn || l.id, w: 96 });
+                  navn: l.navn || l.id });
+    // Ingen lampe over Lok-stilleren: spaken viser selv om enden er
+    // frigitt, og forbildets frigivningsmelding er lokalstillerlampen
+    // UTE ved vekselen — ikke et lys på apparatet.
+    ut.push({ slag: "lok", id: side, farge: "#d8a400",
+              navn: side === "v" ? "Lok I" : "Lok II" });
     for (const l of bsVeksL)
       if (bsVekselSide(l) === side)
         ut.push({ slag: "veksel", id: l, farge: "#2b6fc2",
-                  navn: l, pluss: true });
-    ut.push({ slag: "lok", id: side, farge: "#d8a400",
-              navn: side === "v" ? "Lok I" : "Lok II",
-              lampe: `bs-la-lok-${side}` });
+                  navn: l, pluss: true, avvikOpp: VAVVIKOPP[l] !== false });
     for (const f of bsSkiftL)
       if (bsSkiftSide(f) === side)
         ut.push({ slag: "skift", id: f.id, farge: "#c9342a",
                   navn: f.id });
     return ut;
   };
-  s += `<rect x="${-kantV}" y="${bsY0}" ` +
-    `width="${W + kantV + kantH}" height="${BSH}" fill="#46704f"/>`;
+  // Flaten starter der sporplanen slutter — ikke der innholdet gjør.
+  //
+  // HAMMERLAKK: betjeningsflaten er et fotografi av ekte
+  // hammerlakk (ui/hammerlakk.png), lagt som gjentakende mønster.
+  //
+  // Flisen er gjort SØMLØS ved kryssfading mot motsatt kant — siste
+  // rad møter sin egen første — ikke ved speiling. Speiling gir en
+  // matematisk perfekt skjøt, men fotoets grovere klumper blir da
+  // symmetriske om aksen, og flaten leses som tapet. Kryssfadingen
+  // er kompensert for kontrasttap, ellers står overgangsbåndet igjen
+  // som en glattere stripe.
+  //
+  // Flisen tegnes i 133x68 — fila er 266x136, altså nøyaktig dobbelt
+  // opp, så kornet holder seg skarpt på tette skjermer. Størrelsen er
+  // målt fram, ikke gjettet: kornet skal være under en enhet. Se
+  // kilder/lag-hammerlakk.py.
+  //
+  // Flisa gjentas mange ganger over flaten, og da leses ALT som er
+  // grovere enn kornet som mønster i stedet for tilfeldighet — helt
+  // ned til en prosents forskjell. Derfor er bildet høypassfiltrert
+  // hardt, hver fargekanal for seg, og rad- og kolonnesnittene er
+  // tvunget like.
+  //
+  // Grunnfargen ligger under: skulle bildet mangle, står flaten der i
+  // riktig farge, bare uten strukturen.
+  // NB: fila skal være nøyaktig 266x136 — dobbelt av dette. Går
+  // forholdet ikke opp i to, krymper nettleseren med skjev faktor,
+  // og hver flisgrense blir en svak loddrett strek.
+  const HLB = 133, HLH = 68;
+  s += `<defs><pattern id="hammerlakk" width="${HLB}" height="${HLH}" ` +
+    `patternUnits="userSpaceOnUse">` +
+    // Målene står i adressen. Bytter flisa størrelse, bytter URL-en,
+    // og en nettleser som sitter på den gamle fila kan ikke bruke
+    // den. Uten dette passes et bilde med andre mål inn i boksen med
+    // preserveAspectRatio, og flaten blir stripete.
+    //
+    // preserveAspectRatio="none" gjør samme jobben fra andre siden:
+    // bildet SKAL fylle flisa, uansett hva det måtte være.
+    `<image id="pl-hammerlakk" preserveAspectRatio="none" ` +
+    `href="/ui/hammerlakk.png?${HLB}x${HLH}" ` +
+    `width="${HLB}" height="${HLH}"/>` +
+    `</pattern></defs>` +
+    `<rect x="${-kantV}" y="${H}" ` +
+    `width="${W + kantV + kantH}" height="${BSH}" fill="${HAMMERGRUNN}"/>` +
+    `<rect x="${-kantV}" y="${H}" ` +
+    `width="${W + kantV + kantH}" height="${BSH}" ` +
+    `fill="url(#hammerlakk)"/>`;
+  // Måleren tegnes 46 px bred; høyden følger av tegningens format.
+  const ampMaaler = (cx, cy, br) => {
+    const k = br / AMPB, h = AMPH * k;
+    const bane = (d, fr) => `<path d="${d}" class="ampsort"` +
+      (fr === "nonzero" ? ` fill-rule="nonzero"` : "") + `/>`;
+    return `<g transform="translate(${(cx - br / 2).toFixed(2)},` +
+      `${(cy - h / 2).toFixed(2)}) scale(${k.toFixed(6)})">` +
+      `<rect x="${AMPRAMME[0]}" y="${AMPRAMME[1]}" ` +
+      `width="${AMPRAMME[2]}" height="${AMPRAMME[3]}" ` +
+      `rx="${AMPRAMME[4]}" class="ampskive"/>` +
+      bane(AMPBOYLE) +
+      AMPMERKE.map(m => bane(m[0], m[1])).join("") +
+      `<text x="${AMPTEKST[1]}" y="${AMPTEKST[2]}" ` +
+      `font-size="${AMPTEKST[3]}" class="amptekst">${AMPTEKST[0]}</text>` +
+      `<g transform="translate(${AMPPIV[0]},${AMPPIV[1]})">` +
+      `<g id="pl-amp"><path d="${AMPVISER}" class="ampsort"/></g></g>` +
+      `</g>`;
+  };
   const bsTegn = (it, cx) => {
     s += `<g class="bs">` +
+      // Vekselstilleren har ETT skilt per stilling: litra over «−»
+      // for avvik øverst, litra over «+» for normal nederst — samme
+      // vei som stilleren beveges. Løse ±-tegn ved spaken sier ikke
+      // hvilken veksel de gjelder.
+      // Øverst står stillingen stilleren legges OPP til, og hvilken
+      // det er avgjøres av sporplanen: ligger avviket oppover der,
+      // ligger det oppover her.
       (it.pluss
-        ? `<text class="bstegn" x="${cx}" y="${bsCy - 32}">+</text>` +
-          `<text class="bstegn" x="${cx}" y="${bsCy + 42}">−</text>`
+        ? bsSkilt(cx, bsSkiltOverCy, BSSKILT, BSSKILT,
+                  [it.navn, it.avvikOpp ? "\u2212" : "+"])
         : "") +
-      (it.lampe
-        ? `<circle id="${it.lampe}" class="pl" ` +
-          `style="color:#e8e8dc" cx="${cx}" cy="${bsCy - 38}" r="6"/>`
-        : "") +
-      `<rect x="${cx - 2.5}" y="${bsCy - 24}" width="5" height="48" ` +
-      `rx="2.5" fill="#24262a"/>` +
+      // Sporet viser hvor stilleren KAN gå. De fleste kan bare legges
+      // 45° ned fra normalstilling, og da går sporet bare ned — et
+      // spor som også peker oppover lover en bevegelse som ikke
+      // finnes. Vekselstilleren (it.pluss) er den ene som kan begge
+      // veier.
+      //
+      bsSpor(cx, bsCy, false) +
+      // Tegnes i NORMALSTILLING: rett ut, altså midt i sporet.
+      // bsSett legger den ned når objektet er aktivert.
       `<circle id="bs-kn-${it.slag}-${it.id}" class="bskn" ` +
-      `cx="${cx}" cy="${bsCy}" r="8" fill="${it.farge}" ` +
-      `stroke="#1c1e21" stroke-width="1.5" pointer-events="none"/>` +
+      `cx="${cx}" cy="${bsCy}" r="${BSKNOTT}" fill="${it.farge}" ` +
+      `stroke="#33363a" stroke-width="1" pointer-events="none"/>` +
       `<rect x="${cx - 15}" y="${bsCy - 26}" width="30" height="26" ` +
       `fill="transparent" ` +
       `onclick="bsDytt('${it.slag}','${it.id}','opp')"/>` +
       `<rect x="${cx - 15}" y="${bsCy}" width="30" height="26" ` +
       `fill="transparent" ` +
       `onclick="bsDytt('${it.slag}','${it.id}','ned')"/>` +
-      `<text class="bsnavn" x="${cx}" ` +
-      `y="${bsCy + (it.pluss ? 56 : 42)}">${it.navn}</text></g>`;
+      // Nedre skilt står i samme høyde for ALLE stillerne, så platene
+      // danner en rad tvers over apparatet.
+      bsSkilt(cx, bsSkiltCy, BSSKILT, BSSKILT,
+              it.pluss ? [it.navn, it.avvikOpp ? "+" : "\u2212"]
+                       : it.navn) + `</g>`;
   };
   // midtgruppen: kontrollampe (signalstopp/jordfeil) øverst, Jord og
   // Sign.stp. ved siden av hverandre, amperemeteret under
-  const ampCy = bsY0 + 96, knCy = bsY0 + 36;
-  s += `<circle id="bs-la-stopp" class="pl" style="color:#ff2a1e" ` +
-    `cx="${bsMidt}" cy="${bsY0 + 12}" r="6"/>` +
-    `<g class="bs"><circle id="bs-knapp-jord" cx="${bsMidt - 24}" ` +
-    `cy="${knCy}" r="10" fill="#111" stroke="#585b60" ` +
-    `stroke-width="1.5" onclick="bsJord()"/>` +
-    `<text class="bsnavn" x="${bsMidt - 24}" y="${knCy + 24}">` +
-    `Jord</text></g>` +
-    `<g class="bs"><circle id="bs-knapp-stopp" cx="${bsMidt + 24}" ` +
-    `cy="${knCy}" r="10" fill="#c9342a" stroke="#585b60" ` +
-    `stroke-width="1.5" onclick="bsStopp()"/>` +
-    `<text class="bsnavn" x="${bsMidt + 24}" y="${knCy + 24}">` +
-    `Sign.stp.</text></g>` +
-    `<g><circle cx="${bsMidt}" cy="${ampCy}" r="20" ` +
-    `fill="#f5f2e6" stroke="#33363a" stroke-width="1.5"/>` +
-    `<line id="pl-amp" x1="${bsMidt}" y1="${ampCy + 6}" ` +
-    `x2="${bsMidt - 11}" y2="${ampCy - 8}" stroke="#111" ` +
-    `stroke-width="2"/>` +
-    `<text class="bsnavn" x="${bsMidt}" y="${ampCy + 34}">Amp.</text>` +
-    `</g>`;
-  let bsXV = bsMidt - 56;               // venstre side, fra midten ut
-  for (const it of bsSide("v")) {
-    const w = it.w || 64;
-    bsTegn(it, bsXV - w / 2);
-    bsXV -= w;
-  }
-  let bsXH = bsMidt + 56;               // høyre side, fra midten ut
-  for (const it of bsSide("h")) {
-    const w = it.w || 64;
-    bsTegn(it, bsXH + w / 2);
-    bsXH += w;
-  }
+  // Midtkolonnen er trang: lampe, knapperad med skilt, måler og
+  // skilt under.
+  //
+  // Jord, kontrollampa og Sign.stp står på ÉN linje nesten helt
+  // øverst på flaten: trykknappene ytterst og den felles
+  // kontrollampa (signalstopp/jordfeil) mellom dem. Over dem er det
+  // ingenting, så raden kan ligge høyt uten å komme i veien for
+  // skiltene over stillerne.
+  //
+  // Amperemeteret står sentrert under, i midtkolonnen. Den er
+  // BSMIDTLUFT bred til hver side, og der begynner rasteret — så
+  // måleren har (BSMIDTLUFT - AMPBREDDE/2) å gå på i hver ende.
+  // Blir den bredere enn kolonnen, må BSMIDTLUFT opp; rasteret
+  // flytter seg da utover av seg selv.
+  const AMPBREDDE = 130;
+  const knCy = H + 26, ampCy = bsY0 + 104;
+  const knDx = AMPBREDDE / 2 - BSKNAPP;      // fra midten ut til knappen
+  s += `<circle id="bs-la-stopp" class="pl" style="${lampeStil('#ff2a1e')}" ` +
+    `cx="${bsMidt}" cy="${knCy}" r="6"/>` +
+    // Jord og Sign.stp er knapper, ikke stillere: de står utenfor
+    // spakrasteret og får REKTANGULÆRE skilt — «Sign.stp.» får ikke
+    // plass på en 40 px rute uten å måtte brytes til uleselighet.
+    //
+    // Avstanden er bundet til målerens bredde: knappenes ytterkant
+    // står rett over målerens kant, så raden og instrumentet under
+    // har samme bredde. Da er ikke tallet valgt på slump, og det
+    // følger med om måleren endrer størrelse.
+    `<g class="bs"><circle id="bs-knapp-jord" cx="${bsMidt - knDx}" ` +
+    `cy="${knCy}" r="${BSKNAPP}" fill="#111" stroke="#33363a" ` +
+    `stroke-width="1" onclick="bsJord()"/>` +
+    bsSkilt(bsMidt - knDx, knCy + 26, 56, 26, "Jord") + `</g>` +
+    `<g class="bs"><circle id="bs-knapp-stopp" cx="${bsMidt + knDx}" ` +
+    `cy="${knCy}" r="${BSKNAPP}" fill="#c9342a" stroke="#33363a" ` +
+    `stroke-width="1" onclick="bsStopp()"/>` +
+    bsSkilt(bsMidt + knDx, knCy + 26, 56, 26, "Sign.stp.") + `</g>` +
+    // amperemeteret er selvforklarende og har intet skilt
+    ampMaaler(bsMidt, ampCy, AMPBREDDE);
+  ampNullstill();
+  // RASTERET: stillere med SAMME farge står tett inntil hverandre,
+  // og mellom to farger er det én stillerbredde luft. Fargen er
+  // funksjonen — blå er låser, rigler og vekselstillere, gul er
+  // Lok-frigivningen, rød er skiftesignalene — så gruppene leses som
+  // grupper uten at noe måtte skrives på apparatet.
+  //
+  // Ruten er fast: hver stiller har samme bredde uansett hvor langt
+  // navnet er. Før fikk samlelåsen 88 px og rigelen 96 fordi navnene
+  // deres er lange, og stillerne sto i ujevn takt. Det er skiltet som
+  // skal ta seg av teksten; stillerne er maskinvare og står på rekke.
+  const BSRAST = 56;        // én stillerbredde (52 px skilt + luft)
+  // Midtkolonnen er 2 x BSMIDTLUFT bred. Den skal romme
+  // amperemeteret med god margin — måleren er 130, kolonnen 260.
+  const BSMIDTLUFT = 130;   // fra midten ut til første stiller
+  const bsRekke = (side, retning) => {
+    let x = bsMidt + retning * (BSMIDTLUFT + BSRAST / 2);
+    let forrige = null;
+    for (const it of bsSide(side)) {
+      if (forrige && it.farge !== forrige) x += retning * BSRAST;
+      bsTegn(it, x);
+      forrige = it.farge;
+      x += retning * BSRAST;
+    }
+  };
+  bsRekke("v", -1);
+  bsRekke("h", 1);
   holder.innerHTML =
     `<svg id="plansvg" viewBox="${-kantV} 0 ${W + kantV + kantH} ` +
     `${H + BSH}" ` +
-    `xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+    `xmlns="http://www.w3.org/2000/svg">` +
+    // SPORPLANENS HVITE FLATE. Den var en CSS-bakgrunn på
+    // svg-elementet, men den lå bak ALT — også bak hammerlakken — og
+    // langs lakkflatens underkant, der kanten lander på en brøkdels
+    // skjermpiksel, skinte den gjennom som en hvit stripe.
+    //
+    // Den settes inn HER, ved sammenstillingen, og ikke i s. Omriss-
+    // passet på sporbåndene limer sitt eget lag FORAN i s
+    // (s = `<g>…</g>` + s), så «først i s» er ikke det samme som
+    // først i tegningen — et rektangel lagt der ville malt over
+    // båndomrissene.
+    //
+    // «Lagre SVG» blir riktigere på kjøpet: eksporten hadde ingen
+    // bakgrunn, og hvilken farge planen fikk var opp til programmet
+    // som åpnet fila.
+    `<rect x="${-kantV}" y="0" width="${W + kantV + kantH}" ` +
+    `height="${H}" fill="#fff"/>` +
+    `${s}</svg>`;
   /* ---- tilstandsbindingene ---- */
   for (const fid of Object.keys(feltAv))
     planBind(`sporfelt/${fid}/state`, pl => {
@@ -1980,13 +2430,38 @@ function byggPlan(fns) {
   for (const [lf, ids] of Object.entries(tvOver)) {
     const oppdater = () => {
       const st = ids.map(id => TIL[`togvei/${id}/state`]);
+      // Blink betyr ÉN ting: sikringen er ikke fullført, betjen
+      // stillerne på nytt (ORV 3.4.2). Er togveien sikret, lyser
+      // lampen fast — også mens hjelpeutløsningen går og mens den
+      // venter på sistevognskontroll (3.4.3.1 og 3.4.3.2).
       plSet(`pl-tv-${lf}`,
-            st.includes("aktiv") ? "pa"
-          : st.some(x => x === "sikring" || x === "klar-utlos" ||
-                         x === "hjelpeutlosning") ? "blink" : "av");
+            st.some(x => x === "aktiv" || x === "klar-utlos" ||
+                         x === "hjelpeutlosning") ? "pa"
+          : st.includes("sikring") ? "blink" : "av");
     };
     for (const id of ids) planBind(`togvei/${id}/state`, oppdater);
   }
+  // AMPEREMETERET gjør utslag mens en drivmaskin trekker strøm.
+  // Det er ikke pynt: «sporvekselstilleren holdes omlagt inntil
+  // amperemeteret gjør utslag» (ORV 3.3.4) — utslaget er kvitteringen
+  // på at maskinen faktisk gikk, og det er det operatøren ser etter.
+  //
+  // Samme regel som master kjører det FYSISKE instrumentet etter
+  // (oppdaterAmperemeter): alle drivobjekter, så også sporsperrens
+  // motor. Vi teller dem i et sett, for to veksler kan gå samtidig og
+  // den siste som blir ferdig skal slippe viseren.
+  const ampGaar = new Set();
+  const ampBind = tema => planBind(tema, pl => {
+    if (pl === "omlegging") ampGaar.add(tema); else ampGaar.delete(tema);
+    ampSett(ampGaar.size > 0);
+  });
+  for (const litra of Object.keys(vx)) ampBind(`sporveksel/${litra}/state`);
+  // Vekselstilleren slippes av SAMME melding som slipper viseren —
+  // det er den samme hendelsen sett fra to kanter av apparatet.
+  for (const litra of Object.keys(vx))
+    planBind(`sporveksel/${litra}/state`,
+             pl => bsVekselTilstand(litra, pl));
+  for (const sp of sperrer) ampBind(`sporsperre/${sp.id}/state`);
   for (const litra of Object.keys(vx))
     planBind(`sporveksel/${litra}/state`, pl => {
       // uten tungekontroll (ingen sensorer, eller stilling ikke
@@ -2041,15 +2516,22 @@ function byggPlan(fns) {
     planBind(`samlelaas/${l.id}/state`, v =>
       bsSett("samlelaas", l.id, !!v && v !== "sperret"));
   for (const l of rigler)
+    // «etterlop» betyr at stilleren ER tatt tilbake — bare «frigitt»
+    // holder den nede. Ellers kunne den ikke legges om igjen mens
+    // etterløpet går, og master godtar nettopp det.
     planBind(`rigel/${l.id}/state`, v =>
-      bsSett("rigel", l.id, !!v && v !== "sperret"));
+      bsSett("rigel", l.id, v === "frigitt"));
   planBind("master/frigivning", v => {
     let o = {};
     try { o = JSON.parse(v); } catch (e) { /* uparselig: alt av */ }
-    bsSett("lok", "v", !!o.venstre);
-    bsSett("lok", "h", !!o.hoyre);
-    plSet("bs-la-lok-v", o.venstre ? "pa" : "av");
-    plSet("bs-la-lok-h", o.hoyre ? "pa" : "av");
+    // STILLEREN følger stilleren, ikke frigivningen: i etterløpet
+    // står frigivningen ved lag mens stilleren alt er tatt tilbake.
+    // Sto den nede der, var det umulig å se at et nytt utslag hadde
+    // virkning — og master godtar nettopp det («ny frigivning stryker
+    // etterløpet»). Eldre firmware sender ikke stiller_*; da faller
+    // vi tilbake på frigivningen, som før.
+    bsSett("lok", "v", !!(o.stiller_v !== undefined ? o.stiller_v : o.venstre));
+    bsSett("lok", "h", !!(o.stiller_h !== undefined ? o.stiller_h : o.hoyre));
   });
   const bsStoppLampe = () =>
     plSet("bs-la-stopp",
