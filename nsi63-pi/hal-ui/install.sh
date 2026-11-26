@@ -29,10 +29,21 @@ cp "$HERE/app.py" "$DIR/"
 # Brukerflaten: HTML, CSS og JS som egne filer
 rm -rf "$DIR/ui"
 cp -R "$HERE/ui" "$DIR/ui"
-# hal.json kopieres bare hvis den ikke finnes fra før (ikke overskriv konfig!)
-if [ ! -f "$DIR/hal.json" ]; then
-  cp "$HERE/hal.json" "$DIR/"
-fi
+# Stillerapparatet (/panel): samme glob som deploy-pi.sh. Manglet
+# dette, svarte en fersk Pi 404 på /panel til første deploy.
+for f in "$HERE"/panel.html "$HERE"/mqtt.min.js "$HERE"/*.ttf \
+         "$HERE"/*.otf "$HERE"/*-OFL.txt; do
+  [ -f "$f" ] && cp "$f" "$DIR/"
+done
+# Konfigen kopieres bare hvis den ikke finnes fra før (ikke overskriv
+# konfig!). Alle tre må med: /panel tegner ingenting før både
+# config/hal og config/forrigling er retained på brokeren, og med bare
+# hal.json ble en fersk Pi stående på «Venter på konfigurasjon».
+for f in hal.json forrigling.json anlegg.json; do
+  if [ -f "$HERE/$f" ] && [ ! -f "$DIR/$f" ]; then
+    cp "$HERE/$f" "$DIR/"
+  fi
+done
 
 echo "== systemd-tjeneste =="
 cat > /etc/systemd/system/nsi63-hal.service <<EOF

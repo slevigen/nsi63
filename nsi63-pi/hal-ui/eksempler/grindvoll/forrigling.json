@@ -26,10 +26,6 @@
         {
           "sporveksel": "1",
           "stilling": "avvik"
-        },
-        {
-          "sporveksel": "3",
-          "stilling": "normal"
         }
       ],
       "frie": [
@@ -37,7 +33,10 @@
         "1",
         "02"
       ],
-      "utlosningsfelt": "1"
+      "utlosningsfelt": "1",
+      "laaser": [
+        "S1"
+      ]
     },
     {
       "id": "B01",
@@ -64,10 +63,6 @@
         {
           "sporveksel": "2",
           "stilling": "avvik"
-        },
-        {
-          "sporveksel": "4",
-          "stilling": "normal"
         }
       ],
       "frie": [
@@ -75,7 +70,10 @@
         "2",
         "02"
       ],
-      "utlosningsfelt": "2"
+      "utlosningsfelt": "2",
+      "laaser": [
+        "S2"
+      ]
     },
     {
       "id": "01A",
@@ -101,17 +99,16 @@
         {
           "sporveksel": "1",
           "stilling": "avvik"
-        },
-        {
-          "sporveksel": "3",
-          "stilling": "normal"
         }
       ],
       "frie": [
         "1",
         "A"
       ],
-      "utlosningsfelt": "1"
+      "utlosningsfelt": "1",
+      "laaser": [
+        "S1"
+      ]
     },
     {
       "id": "01B",
@@ -137,17 +134,16 @@
         {
           "sporveksel": "2",
           "stilling": "avvik"
-        },
-        {
-          "sporveksel": "4",
-          "stilling": "normal"
         }
       ],
       "frie": [
         "2",
         "B"
       ],
-      "utlosningsfelt": "2"
+      "utlosningsfelt": "2",
+      "laaser": [
+        "S2"
+      ]
     }
   ]
 }

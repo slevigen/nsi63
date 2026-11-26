@@ -49,11 +49,10 @@ NSI63_HOST=127.0.0.1 pytest -v   # kjørt på selve Pi-en
 
 | Test | Kontrakt |
 |------|----------|
-| samlelaas_frigi_og_sperr | `frigi` → state `frigitt`; `sperr` → `sperret` (nøkkelen simulert inne) |
+| samlelaas_frigi_og_sperr | `frigi` → state `frigitt`; `sperr` → `sperret` |
 | samlelaas_frigitt_sperrer_sikring | frigitt lås → togvei som KREVER den `avvist`, state forblir `ledig` |
 | samlelaas_frigivning_avvist_av_togvei | forriglet togvei som krever låsen → `frigivning avvist`, låsen forblir `sperret` (tosidig forrigling) |
 | samlelaas_avviser_omlegging | omlegging av veksel i «omfatter» → `avvist: laast av samlelaas` |
-| samlelaas_nodutlosning | nøkkelen tatt ut uten frigivning under aktiv togvei → `NOEDUTLOSNING`, signal i stopp STRAKS, togveien fortsatt forriglet |
 
 ### Rigel — direkte elektrisk lås
 

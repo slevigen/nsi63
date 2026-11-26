@@ -79,7 +79,7 @@
     },
     {
       "id": "3",
-      "type": "sporveksel",
+      "type": "manuellveksel",
       "spiss": "v",
       "pluss_til": "02",
       "minus_til": "3",
@@ -90,7 +90,7 @@
     },
     {
       "id": "4",
-      "type": "sporveksel",
+      "type": "manuellveksel",
       "spiss": "h",
       "pluss_til": "02",
       "minus_til": "veksel 5",
@@ -101,7 +101,7 @@
     },
     {
       "id": "5",
-      "type": "sporveksel",
+      "type": "manuellveksel",
       "spiss": "h",
       "pluss_til": "3",
       "minus_til": "6",
@@ -126,7 +126,6 @@
         "3",
         "SpI"
       ],
-      "sperrer": [],
       "notes": "Kontrollås for veksel 3 og sporsperre I. Nøkkel Z 917 (Kl/Z917 på planen).",
       "bindinger": []
     },
@@ -138,7 +137,6 @@
         "4",
         "5"
       ],
-      "sperrer": [],
       "notes": "Kontrollås for veksel 4 og 5.",
       "bindinger": []
     },
@@ -222,7 +220,7 @@
     },
     {
       "id": "ZM",
-      "type": "skiftesignal2",
+      "type": "skiftesignal1",
       "skift_sporveksler": [
         "1"
       ],
@@ -231,7 +229,7 @@
     },
     {
       "id": "ZL",
-      "type": "skiftesignal2",
+      "type": "skiftesignal1",
       "skift_sporveksler": [
         "2"
       ],
@@ -397,5 +395,5 @@
       }
     }
   },
-  "noder": []
+  "noder": {}
 }

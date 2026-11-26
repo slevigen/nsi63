@@ -154,8 +154,7 @@ SIGNALTYPER_DEFAULT = {
     # unødvendig der og fordi en rekke som lyser nesten konstant brenner
     # mye pærer. Derfor to typer:
     #
-    #   skiftesignal2 — anlegg UTEN fjernstyring. Begge bildene finnes,
-    #                   og 41 er normalbildet og lyser FAST.
+    #   skiftesignal2 — anlegg UTEN fjernstyring. Begge bildene finnes.
     #   skiftesignal1 — fjernstyrt anlegg. Bare 42; mørkt signal er
     #                   fravær av signal, ikke et forbudssignal. Det er
     #                   denne formen A-sirkulære 16/1973 pkt. 3 for
@@ -166,16 +165,25 @@ SIGNALTYPER_DEFAULT = {
     # viste «enten skifting tillatt eller skifting forbudt». Sokna skal
     # derfor ha skiftesignal2.
     #
+    # Normalbildet er likevel SLUKKET (begge rekker mørke) for begge
+    # typene, besluttet 21.08.2026 sammen med skiftesignal-automatikken:
+    # signalet er «på» bare mens skifting pågår, og viser da 42 — eller
+    # 41 automatisk mens en veksel i området er i bevegelse eller uten
+    # kontroll (oppdaterSkifteForbudt i master.cpp). Firmwaren regner
+    # både 41 og 42 som «skifting pågår», så 41 som normalbilde ville
+    # sperret togveiene i området permanent.
+    #
     # Lampe 1 = øvre rekke (42), lampe 2 = nedre rekke (41) — den
     # rekkefølgen «nedre lamperekke ble fjernet» forutsetter. Er en
     # rekke bygget av flere pærer, parallellkobles de på samme kanal.
     "skiftesignal2": {
         "klasse": "skiftesignal",
         "lamper": 2,
-        "normalbilde": "skifting-forbudt",
+        "normalbilde": "slukket",
         "bilder": {
             "skifting-forbudt": ["av", "pa"],   # 41 nedre rekke
             "skifting-tillatt": ["pa", "av"],   # 42 øvre rekke
+            "slukket":          ["av", "av"],   # normalstilling
         },
         "signalnr": {"skifting-forbudt": "41", "skifting-tillatt": "42"},
     },
@@ -558,6 +566,16 @@ def migrate(data: dict) -> dict:
             sk["bilder"]["slukket"] = sk["bilder"].pop("skifting-forbudt")
             if sk.get("normalbilde") == "skifting-forbudt":
                 sk["normalbilde"] = "slukket"
+        # skiftesignal2 fra før 21.08.2026-modellen (41 som normalbilde,
+        # uten «slukket»): firmwaren tolker 41 som pågående skifting, så
+        # signalet ville sperret området for godt. Her BEHOLDES 41 —
+        # det er et ekte bilde — og «slukket» legges til ved siden av.
+        sk2 = st.get("skiftesignal2", {})
+        if isinstance(sk2, dict) and isinstance(sk2.get("bilder"), dict):
+            if "slukket" not in sk2["bilder"]:
+                sk2["bilder"]["slukket"] = ["av"] * int(sk2.get("lamper") or 2)
+            if sk2.get("normalbilde") == "skifting-forbudt":
+                sk2["normalbilde"] = "slukket"
         # Signalklasser (navnerom/MQTT-rot): eldre konfig mangler
         # klassefeltet — utled det av typenavnet én gang
         for navn, t in st.items():
@@ -577,7 +595,15 @@ def load_hal() -> dict:
         data = {"version": 0, "updated": None,
                 "signaltyper": copy.deepcopy(SIGNALTYPER_DEFAULT),
                 "functions": []}
-    data.setdefault("noder", {})   # kallenavn -> {"mac": "..."}
+    # kallenavn -> {"mac": "...", "driver": ["0x40", ...]}
+    # «driver» er PCA9685-brikkene der utgangene går via lampedriver
+    # (nodekortet): master sender lampene aktiv høy dit.
+    data.setdefault("noder", {})
+    # En tom LISTE (som i et tidligere Grindvoll-eksempel) er gyldig
+    # JSON men feil type: neste lagring kaller .get()/.items() på den
+    # og gir HTTP 500. Tom = ingen kallenavn, så {} er riktig verdi.
+    if not data["noder"]:
+        data["noder"] = {}
     return data
 
 
@@ -628,6 +654,29 @@ def save_hal(functions=None, noder=None) -> dict:
 
 def valid_mac(s: str) -> bool:
     return len(s) == 12 and all(c in "0123456789abcdef" for c in s)
+
+
+# PCA9685-adressene en node kan ha. Bare disse kan gå via driver:
+# GPIO-portene og PCF8574-inngangene gjør det aldri.
+PCA_ADRESSER = ("0x40", "0x41", "0x42", "0x43")
+
+
+def _i2c_norm(v) -> str:
+    """I2C-adresse som "0x40", enten den kom som tekst eller tall."""
+    if isinstance(v, int):
+        return f"0x{v:02x}"
+    return str(v).strip().lower()
+
+
+def driver_brikker(noder: dict) -> set:
+    """{(mac, "0x40"), …} — brikkene der utgangene går via driver."""
+    ut = set()
+    for v in (noder or {}).values():
+        if not isinstance(v, dict):
+            continue
+        for a in v.get("driver") or []:
+            ut.add(((v.get("mac") or "").lower(), _i2c_norm(a)))
+    return ut
 
 
 # ---------- API ----------
@@ -1561,6 +1610,61 @@ def api_save():
     if konflikter:
         return jsonify({"error": "Portkonflikt: "
                         + " · ".join(konflikter)}), 400
+    # LITRA-OMDØPING: UI-et sender gammel_id per rad når litraen er
+    # endret. Alle referanser følger med — ellers ble koblingene
+    # stille foreldreløse (samme prinsipp som kallenavn-omdøping).
+    # Skrives om FØR valideringen under: den sjekker at referansene
+    # finnes, og ville ellers avvist lagringen fordi f.eks. et
+    # skiftesignal fortsatt pekte på vekselens gamle litra.
+    renames = {}   # (klasse/navnerom, gammel) -> ny
+    for f in functions:
+        gammel = (f.pop("gammel_id", "") or "").strip()
+        ny = f["id"].strip()
+        if gammel and gammel != ny:
+            renames[(litra_ns(f.get("type"), st_map), gammel)] = ny
+
+    def omd(ns, verdi):
+        """Ny litra i navnerommet ns (eller ett av flere), ellers uendret."""
+        v = (verdi or "").strip()
+        for n in ((ns,) if isinstance(ns, str) else ns):
+            if (n, v) in renames:
+                return renames[(n, v)]
+        return verdi
+
+    def omd_topo(verdi):
+        # Sporplan-portene: sporfelt-litra, eller «veksel N» for kjeder
+        if verdi.startswith("veksel "):
+            return "veksel " + omd("sporveksel", verdi[7:])
+        return omd("sporfelt", verdi)
+
+    n_refs = 0
+    if renames:
+        for f in functions:   # interne referanser i objekttabellen
+            enkle = (("montert_med", "hovedsignal", omd),
+                     ("varsler_om", "hovedsignal", omd),
+                     ("linjefelt", "sporfelt", omd),
+                     ("pluss_til", None, omd_topo),
+                     ("minus_til", None, omd_topo),
+                     ("spiss_til", None, omd_topo),
+                     ("ligger_i", None, omd_topo))
+            for felt, ns, fn in enkle:
+                if not f.get(felt):
+                    continue
+                ny = fn(ns, f[felt]) if ns else fn(f[felt])
+                if ny != f[felt]:
+                    f[felt] = ny
+                    n_refs += 1
+            # Lister: skifteområdet (veksler) og låsegruppens virkeområde
+            # (veksler og sporsperrer)
+            for felt, ns in (("skift_sporveksler", "sporveksel"),
+                             ("omfatter", ("sporveksel", "sporsperre"))):
+                gml = f.get(felt)
+                if not isinstance(gml, list):
+                    continue
+                nye = [omd(ns, x) for x in gml]
+                if nye != gml:
+                    n_refs += sum(1 for a, b in zip(nye, gml) if a != b)
+                    f[felt] = nye
     topologi = _topologi_feil(functions)
     if topologi:
         return jsonify({"error": " · ".join(topologi)}), 400
@@ -1573,28 +1677,6 @@ def api_save():
     stor = _for_stor(prove, "Objektkonfigurasjonen")
     if stor:
         return jsonify({"error": stor}), 400
-    # LITRA-OMDØPING: UI-et sender gammel_id per rad når litraen er
-    # endret. Alle referanser følger med — ellers ble koblingene
-    # stille foreldreløse (samme prinsipp som kallenavn-omdøping).
-    renames = {}   # (klasse/navnerom, gammel) -> ny
-    for f in functions:
-        gammel = (f.pop("gammel_id", "") or "").strip()
-        ny = f["id"].strip()
-        if gammel and gammel != ny:
-            renames[(litra_ns(f.get("type"), st_map), gammel)] = ny
-
-    def omd(ns, verdi):
-        return renames.get((ns, (verdi or "").strip()), verdi)
-
-    n_refs = 0
-    if renames:
-        for f in functions:   # interne referanser i objekttabellen
-            for felt, ns in (("montert_med", "hovedsignal"),
-                             ("varsler_om", "hovedsignal"),
-                             ("linjefelt", "sporfelt")):
-                if f.get(felt) and omd(ns, f[felt]) != f[felt]:
-                    f[felt] = omd(ns, f[felt])
-                    n_refs += 1
     data = save_hal(functions=functions)
 
     # Togveitabellen refererer litraer i tre navnerom — skriv om og
@@ -1624,6 +1706,13 @@ def api_save():
                     v["sporveksel"] = omd("sporveksel", v["sporveksel"])
                     endret = True
                     n_refs += 1
+            nylaas = [omd(("samlelaas", "rigel"), x)
+                      for x in tv.get("laaser") or []]
+            if nylaas != (tv.get("laaser") or []):
+                n_refs += sum(1 for a, b in zip(nylaas, tv["laaser"])
+                              if a != b)
+                tv["laaser"] = nylaas
+                endret = True
             nyid = _gen_togvei_id(tv, functions, st_map)
             if nyid and nyid != tv.get("id"):
                 tv["id"] = nyid
@@ -1657,7 +1746,14 @@ def api_node_alias():
              if v.get("mac") != mac and a != alias}
     functions = data.get("functions", [])
     if alias:
-        noder[alias] = {"mac": mac}
+        # Alt annet som står på noden (driver-listen) følger MAC-en
+        # gjennom omdøpingen. Ved bytte av defekt enhet (samme navn,
+        # ny MAC) arves den fra navnet: det er KORTET som har drivere,
+        # og kortet står igjen når Atomen byttes.
+        forrige = next((v for v in data.get("noder", {}).values()
+                        if v.get("mac") == mac), None) \
+            or data.get("noder", {}).get(alias) or {}
+        noder[alias] = {**forrige, "mac": mac}
         # Skriv om eksisterende bindinger fra rå MAC OG fra nodens
         # tidligere kallenavn (omdøping skal aldri gi foreldreløse
         # bindinger — f.eks. seksjon1 -> SEKSJON1)
@@ -1666,6 +1762,36 @@ def api_node_alias():
                 if b.get("node") == mac or b.get("node") in gamle:
                     b["node"] = alias
     data = save_hal(functions=functions, noder=noder)
+    return jsonify({"ok": True, "version": data["version"]})
+
+
+@app.post("/api/node-driver")
+def api_node_driver():
+    """Slå «utganger via driver» av eller på for én PCA9685 på en node."""
+    body = request.get_json(force=True)
+    mac = (body.get("mac") or "").strip().lower()
+    i2c = _i2c_norm(body.get("i2c") or "")
+    if not valid_mac(mac):
+        return jsonify({"error": "ugyldig MAC"}), 400
+    if i2c not in PCA_ADRESSER:
+        return jsonify({"error": "bare PCA9685 (0x40–0x43) kan gå via "
+                                 "driver"}), 400
+    data = load_hal()
+    noder = data.get("noder", {})
+    alias = next((a for a, v in noder.items() if v.get("mac") == mac),
+                 None)
+    if not alias:
+        return jsonify({"error": "gi noden et kallenavn først"}), 400
+    brikker = {_i2c_norm(a) for a in noder[alias].get("driver") or []}
+    if body.get("driver"):
+        brikker.add(i2c)
+    else:
+        brikker.discard(i2c)
+    if brikker:
+        noder[alias]["driver"] = sorted(brikker)
+    else:
+        noder[alias].pop("driver", None)
+    data = save_hal(noder=noder)
     return jsonify({"ok": True, "version": data["version"]})
 
 
@@ -1706,38 +1832,44 @@ def api_forrigling_ack():
     return jsonify(cache["forrigling_ack"] or {})
 
 
-@app.post("/api/forrigling")
-def api_forrigling_save():
-    body = request.get_json(force=True)
-    togveier = body.get("togveier", [])
-    hal = load_hal()
+def _togvei_feil(togveier, fns, st_map):
+    """Første feil i togveitabellen mot objekttabellen fns, eller None.
+    Felles for vanlig lagring og gjenoppretting fra backup — en backup
+    skal ikke slippe gjennom noe skjemaet selv ville nektet."""
+    if not isinstance(togveier, list):
+        return "togveier skal være en liste"
     # Typede oppslag: litra er unik per objektklasse, så referansene
     # slås opp i riktig navnerom (veksel 1 og sporfelt 1 kan begge finnes)
-    fns = hal.get("functions", [])
-    st_map = hal.get("signaltyper", {})
     hoved = {f["id"]: f for f in fns
              if sig_klasse(f.get("type", ""), st_map) == "hovedsignal"}
     vx = {f["id"]: f for f in fns if f.get("type") == "sporveksel"}
     felt = {f["id"]: f for f in fns if f.get("type") == "sporfelt"}
     seen = set()
     for tv in togveier:
+        if not isinstance(tv, dict):
+            return "togvei som ikke er et objekt"
         tid = (tv.get("id") or "").strip()
         if not tid:
-            return jsonify({"error": "Alle togveier må ha ID"}), 400
+            return "Alle togveier må ha ID"
         tegn = litra_ugyldig(tid)
         if tegn:
-            return jsonify({"error": f"Togvei «{tid}»: tegnet '{tegn}' er "
-                            f"ulovlig (brukes i MQTT-temaer)"}), 400
+            return (f"Togvei «{tid}»: tegnet '{tegn}' er "
+                    f"ulovlig (brukes i MQTT-temaer)")
+        if len(tid) > MAX_LITRA:
+            return (f"Togvei «{tid}» er {len(tid)} tegn — maks "
+                    f"{MAX_LITRA} (master avkorter)")
         if tid in seen:
-            return jsonify({"error": f"Duplikat togvei-ID: {tid}"}), 400
+            return (f"Duplikat togvei-ID: {tid}")
         seen.add(tid)
         start = (tv.get("start") or "").strip()
         if not start:
-            return jsonify({"error": f"{tid}: mangler startsignal"}), 400
+            return (f"{tid}: mangler startsignal")
         if start not in hoved:
-            return jsonify({"error": f"{tid}: startsignal '{start}' er ikke "
-                                     f"et hovedsignal i HAL"}), 400
+            return (f"{tid}: startsignal '{start}' er ikke "
+                    f"et hovedsignal i HAL")
         for v in tv.get("sporveksler", []):
+            if not isinstance(v, dict):
+                return f"{tid}: ugyldig vekselrad"
             if v.get("sporveksel") not in vx:
                 # Egen begrunnelse for manuellveksel: forriglingen kan
                 # ikke kaste en håndstilt veksel, og den melder aldri
@@ -1746,38 +1878,37 @@ def api_forrigling_save():
                               and f.get("type") == "manuellveksel"
                               for f in fns)
                 if manuell:
-                    return jsonify({"error":
-                        f"{tid}: '{v.get('sporveksel')}' er en "
-                        f"manuellveksel og kan ikke inngå i en togvei — "
-                        f"sikre den med samlelås eller rigel i stedet"}), 400
-                return jsonify({"error": f"{tid}: '{v.get('sporveksel')}' "
-                                         f"er ikke en sporveksel i HAL"}), 400
+                    return (f"{tid}: '{v.get('sporveksel')}' er en "
+                            f"manuellveksel og kan ikke inngå i en togvei — "
+                            f"sikre den med samlelås eller rigel i stedet")
+                return (f"{tid}: '{v.get('sporveksel')}' "
+                        f"er ikke en sporveksel i HAL")
             if v.get("stilling") not in ("normal", "avvik"):
-                return jsonify({"error": f"{tid}: ugyldig stilling"}), 400
+                return (f"{tid}: ugyldig stilling")
         laasgrupper = {f["id"] for f in fns
                        if f.get("type") in ("samlelaas", "rigel")}
         laaser = tv.get("laaser") or []
         if len(laaser) > MAX_TV_LAASER:
-            return jsonify({"error": f"{tid}: {len(laaser)} låsegrupper — "
-                                     f"maks {MAX_TV_LAASER}"}), 400
+            return (f"{tid}: {len(laaser)} låsegrupper — "
+                    f"maks {MAX_TV_LAASER}")
         for lg in laaser:
             if lg not in laasgrupper:
-                return jsonify({"error": f"{tid}: '{lg}' er ikke en "
-                                         f"samlelås eller rigel i HAL"}), 400
+                return (f"{tid}: '{lg}' er ikke en "
+                        f"samlelås eller rigel i HAL")
         felt_refs = list(tv.get("frie", [])) + \
             [tv.get("utlosningsfelt")]
         for sf in felt_refs:
             if sf and sf not in felt:
-                return jsonify({"error": f"{tid}: '{sf}' er ikke et "
-                                         f"sporfelt i HAL"}), 400
+                return (f"{tid}: '{sf}' er ikke et "
+                        f"sporfelt i HAL")
         # Utløsningsfeltet er en hendelse PÅ togveien — det må stå
         # blant feltene togveien krever frie. (Signalfall trenger
         # ingen konfig: ethvert felt i togveien feller signalet.)
         frie = set(tv.get("frie", []))
         uf = tv.get("utlosningsfelt")
         if uf and uf not in frie:
-            return jsonify({"error": f"{tid}: utløsningsfeltet '{uf}' må "
-                                     f"stå i «Frie sporfelt»"}), 400
+            return (f"{tid}: utløsningsfeltet '{uf}' må "
+                    f"stå i «Frie sporfelt»")
         # Sporfelt-roller: spor kan være fritekst (eldre konfig), men
         # refererer den et kjent sporfelt, må rollen være togspor — og
         # da gjelder retningslogikken: en innkjørtogvei krever at
@@ -1787,18 +1918,30 @@ def api_forrigling_save():
         spor_f = felt.get(spor)
         if spor_f is not None:
             if spor_f.get("rolle") != "togspor":
-                return jsonify({"error": f"{tid}: '{spor}' er ikke et "
-                                         f"sporfelt med rolle togspor"}), 400
+                return (f"{tid}: '{spor}' er ikke et "
+                        f"sporfelt med rolle togspor")
             start_rolle = (hoved.get(start) or {}).get("rolle") or ""
             if start_rolle == "innkjor" and spor not in frie:
-                return jsonify({"error": f"{tid}: innkjørtogvei — togspor"
-                                f"feltet '{spor}' må stå i «Frie sporfelt» "
-                                f"(sporet må være ledig for å ta imot "
-                                f"tog)"}), 400
+                return (f"{tid}: innkjørtogvei — togspor"
+                        f"feltet '{spor}' må stå i «Frie sporfelt» "
+                        f"(sporet må være ledig for å ta imot "
+                        f"tog)")
             if start_rolle == "utkjor" and spor in frie:
-                return jsonify({"error": f"{tid}: utkjørtogvei — togspor"
-                                f"feltet '{spor}' kan ikke stå i «Frie "
-                                f"sporfelt» (toget står der)"}), 400
+                return (f"{tid}: utkjørtogvei — togspor"
+                        f"feltet '{spor}' kan ikke stå i «Frie "
+                        f"sporfelt» (toget står der)")
+    return None
+
+
+@app.post("/api/forrigling")
+def api_forrigling_save():
+    body = request.get_json(force=True)
+    togveier = body.get("togveier", [])
+    hal = load_hal()
+    feil = _togvei_feil(togveier, hal.get("functions", []),
+                        hal.get("signaltyper", {}))
+    if feil:
+        return jsonify({"error": feil}), 400
     kap = _kapasitet_feil_togvei(togveier)
     if kap:
         return jsonify({"error": "Kapasitet: " + " · ".join(kap)}), 400
@@ -1827,6 +1970,7 @@ def lamp_list(data):
     lampeposisjon) og vekselens kontrollamper. Motorer/sensorer utelates."""
     st = data.get("signaltyper", {})
     noder = data.get("noder", {})
+    via_driver = driver_brikker(noder)
     lamps = []
     for f in data.get("functions", []):
         t = st.get(f.get("type"))
@@ -1835,29 +1979,33 @@ def lamp_list(data):
             if not valid_mac(str(mac).lower()):
                 continue   # uoppløselig kallenavn: hopp over
             sted = b.get("sted")
+            # Felles anode rett på brikken = aktiv lav. Via driver er
+            # lampen aktiv høy — samme regel som utLegg() i master.
+            invert = (str(mac).lower(), _i2c_norm(b["i2c"])) not in via_driver
             if t and sted in ("anlegg", "panel"):
                 for k in range(int(t.get("lamper", 1))):
                     lamps.append((mac, b["i2c"], int(b["port"]) + k,
-                                  f'{f["id"]} ({sted}) lampe {k + 1}'))
+                                  f'{f["id"]} ({sted}) lampe {k + 1}',
+                                  invert))
             elif sted in ("panel", "panel-normal", "panel-avvik",
                           "togveislampe", "lokalstillerlampe",
                           "middelkontrollampe"):
                 # enkeltlamper på stillerapparatet: sporfeltindikering
                 # og vekslenes kontrollamper
                 lamps.append((mac, b["i2c"], int(b["port"]),
-                              f'{f["id"]} ({sted})'))
+                              f'{f["id"]} ({sted})', invert))
     return lamps
 
 
-def _lampe(mac, i2c, port, mode):
+def _lampe(mac, i2c, port, mode, invert):
     mq.publish(f"{ROT}espnow/{mac}/out",
                json.dumps({"i2c": i2c, "port": port,
-                           "mode": mode, "invert": True}))
+                           "mode": mode, "invert": invert}))
 
 
 def _alle_lamper(lamps, mode):
-    for mac, i2c, port, _ in lamps:
-        _lampe(mac, i2c, port, mode)
+    for mac, i2c, port, _, invert in lamps:
+        _lampe(mac, i2c, port, mode, invert)
         time.sleep(0.02)   # ikke overkjør nodenes mottakskø
 
 
@@ -1917,16 +2065,16 @@ def run_lamptest():
         # 3) Løpelys: én lampe om gangen, 0,5 s på
         while lamptest["running"]:
             runde += 1
-            for idx, (mac, i2c, port, label) in enumerate(lamps):
+            for idx, (mac, i2c, port, label, invert) in enumerate(lamps):
                 if not lamptest["running"]:
                     break   # stoppet av bruker
                 lamptest.update(i=idx + 1,
                                 progress=f"{label} (runde {runde})")
-                _lampe(mac, i2c, port, "pa")
+                _lampe(mac, i2c, port, "pa", invert)
                 _lt_vent(0.5)
                 # Slukkes ALLTID — også lampen som lyste i Stopp-
                 # øyeblikket (_lt_vent returnerer straks ved stopp)
-                _lampe(mac, i2c, port, "av")
+                _lampe(mac, i2c, port, "av", invert)
                 _lt_vent(0.1)
     finally:
         lamptest.update(running=False,
@@ -2147,7 +2295,8 @@ def api_restore():
         if not (isinstance(fn, dict) and (fn.get("id") or "").strip()):
             return jsonify({"error": "backupen inneholder funksjon uten "
                                      "litra"}), 400
-    if forr is not None and not isinstance(forr.get("togveier"), list):
+    if forr is not None and not (isinstance(forr, dict)
+                                 and isinstance(forr.get("togveier"), list)):
         return jsonify({"error": "forrigling-delen mangler togveier"}), 400
 
     # Samme node-validering som ved vanlig lagring — kjøres ETTER
@@ -2156,10 +2305,19 @@ def api_restore():
     # sett ennå er legitime; UI-et viser dem som foreldreløse).
     hal = migrate(hal)
     noder = hal.get("noder") or {}
+    if not isinstance(noder, dict):
+        return jsonify({"error": "backup: «noder» skal være et objekt "
+                                 "(kallenavn -> node)"}), 400
+    hal["noder"] = noder     # tom liste/null skrives som {}
     for alias, v in noder.items():
         if not (isinstance(v, dict) and valid_mac((v.get("mac") or "").lower())):
             return jsonify({"error": f"backup: kallenavn '{alias}' har "
                                      f"ugyldig MAC"}), 400
+        drv = v.get("driver") or []
+        if not (isinstance(drv, list)
+                and all(_i2c_norm(a) in PCA_ADRESSER for a in drv)):
+            return jsonify({"error": f"backup: kallenavn '{alias}' har "
+                                     f"ugyldig driver-liste"}), 400
     seen = set()
     for fn in hal["functions"]:
         fid = fn["id"].strip()
@@ -2167,6 +2325,9 @@ def api_restore():
         if tegn:
             return jsonify({"error": f"backup: litra «{fid}» har ulovlig "
                             f"tegn '{tegn}' (MQTT) — rett i kilden"}), 400
+        if len(fid) > MAX_LITRA:
+            return jsonify({"error": f"backup: litra «{fid}» er {len(fid)} "
+                            f"tegn — maks {MAX_LITRA} (master avkorter)"}), 400
         ns = litra_ns(fn.get("type"), hal.get("signaltyper"))
         if (ns, fid) in seen:
             return jsonify({"error": f"backup: duplikat litra i samme "
@@ -2210,21 +2371,18 @@ def api_restore():
         stor = _for_stor(forr, "Backupens forriglingstabell")
         if stor:
             return jsonify({"error": "backup: " + stor}), 400
-        # Togveiene må vise til objekter som finnes i BACKUPENS egen HAL
-        litra = {(f.get("id") or "").strip() for f in hal["functions"]}
-        for tv in forr["togveier"]:
-            if not isinstance(tv, dict) or not (tv.get("id") or "").strip():
-                return jsonify({"error": "backup: togvei uten id"}), 400
-            mangler = [x for x in
-                       ([tv.get("start")] + (tv.get("frie") or []) +
-                        [v.get("sporveksel")
-                         for v in (tv.get("sporveksler") or [])
-                         if isinstance(v, dict)])
-                       if x and x not in litra]
-            if mangler:
-                return jsonify({"error": f"backup: togvei {tv['id']} viser "
-                                f"til ukjente objekter: "
-                                f"{', '.join(sorted(set(mangler)))}"}), 400
+        # Togveiene valideres med SAMME regler som vanlig lagring, mot
+        # BACKUPENS egen HAL: typede referanser (start, veksler, frie,
+        # utløsningsfelt, låser), grensen for låser per togvei og
+        # rolle-/retningsreglene for togsporet.
+        # Løft eldre togveitabeller FØRST, som load_forrigling() gjør:
+        # håndveksler i vekselisten flyttes til «laaser». Ellers avviste
+        # den strenge valideringen under en gammel, men gyldig, backup.
+        forr = migrate_forrigling(forr, hal["functions"])
+        feil = _togvei_feil(forr["togveier"], hal["functions"],
+                            hal.get("signaltyper", {}))
+        if feil:
+            return jsonify({"error": "backup: " + feil}), 400
 
     _skriv_og_publiser(hal, HAL_FILE, publish_config)
     n_tv = None

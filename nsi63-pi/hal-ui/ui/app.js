@@ -1858,7 +1858,7 @@ async function renderNoder() {
       <div class="bar" style="margin:8px 0 4px;flex-wrap:wrap">
         <input style="width:70px;flex:0 0 auto;text-transform:uppercase"
                id="anlegg-id" maxlength="3" value="${attr(an.id)}"
-               placeholder="SKN" title="Anleggs-ID: tre store bokstaver">
+               placeholder="XXX" title="Anleggs-ID: tre store bokstaver">
         <input type="checkbox" id="anlegg-adopter"
                style="width:auto;flex:0 0 auto;margin:0"
                ${an.adopter ? "checked" : ""}>
@@ -2150,7 +2150,21 @@ async function renderNoder() {
       ((n.i2c || []).length ? `<b>${(n.i2c || []).join(", ")}</b>`
                             : `ingen I2C-brikker`) +
       (n.fw >= 4 ? ` — GPIO finnes alltid` : ``) + `.</p>`;
-    html += `</div></div>`;
+    // Utganger via driver (nodekortet): én bryter per PCA9685. Noden
+    // må ha kallenavn, for det er der valget lagres.
+    const pca = (n.i2c || []).filter(a => /^0x4[0-3]$/.test(a));
+    if (pca.length) {
+      const drv = (alias && NODER[alias].driver) || [];
+      html += `<p class="hint">Utganger via driver ` +
+        pca.map(a => `<label style="white-space:nowrap;margin-left:10px"
+          title="PÅ: kanalene går gjennom lampedriver (TBD62083/ULN2803) som trekker lasten til jord, og lampene sendes aktiv høy. AV: lampene er koblet felles anode rett på brikken.">
+          <input type="checkbox" ${drv.includes(a) ? "checked" : ""}
+                 ${alias ? "" : "disabled"}
+                 onchange="settDriver('${n.mac}','${a}',this)"> ${a}</label>`)
+           .join("") +
+        (alias ? `` : ` — gi noden et kallenavn først`) + `</p>`;
+    }
+    html += `</div>`;   // .card
   }
   // Lampeprøve
   html += `<div class="card"><h2>Lampeprøve</h2>
@@ -3101,7 +3115,7 @@ function frAdd() {
     return;
   }
   TOGVEIER.push({id:"", start:"", spor:"",
-                 veksler:[], frie:[], utlosningsfelt:"", notes:""});
+                 sporveksler:[], frie:[], utlosningsfelt:"", notes:""});
   frRender();
 }
 function frOpprett(linje, sp, retning) {
@@ -3187,6 +3201,15 @@ async function lampTest(action) {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({action})});
   setTimeout(renderNoder, 300);
+}
+async function settDriver(mac, i2c, boks) {
+  const r = await fetch("/api/node-driver", {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({mac, i2c, driver: boks.checked})});
+  const j = await apiJson(r);
+  if (!r.ok) { toast(j.error, true); boks.checked = !boks.checked; return; }
+  await loadAll();
+  renderNoder();
 }
 async function findNode(mac) {
   await fetch("/api/find", {method: "POST",

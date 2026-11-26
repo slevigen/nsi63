@@ -40,7 +40,9 @@ protocol websockets
 # standard — altfor lenge når strømmen kan ryke uten ryddig avslutning;
 # 30 s koster ingenting på en konfig som endres sjelden.
 persistence true
-persistence_location /var/lib/mosquitto/
+# persistence_location står i distroens mosquitto.conf
+# (/var/lib/mosquitto/). Mosquitto 2.0.21 (Debian 13) nekter å starte
+# hvis den settes to ganger, så den gjentas ikke her.
 autosave_interval 30
 EOF
 systemctl enable mosquitto

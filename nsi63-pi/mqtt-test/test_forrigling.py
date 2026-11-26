@@ -112,22 +112,19 @@ def test_signalstopp_sperrer_sikring(anlegg, topo):
 
 
 # ---------- samlelås — hoppes over uten låser i konfigen ----------
-# Nøkkelkontakten simuleres til «inne» først, så testene er
-# deterministiske også på en benk med (eller uten) fysisk kontakt.
+# Låsen styres bare over /set (frigi/sperr). Nøkkelkontakten, nøkkel-
+# simen og nødutløsningen ble fjernet fra master 24.08.2026.
 
 def test_samlelaas_frigi_og_sperr(anlegg, topo):
     l = topo.samlelaas()
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")
     anlegg.pub(f"samlelaas/{l['id']}/set", "frigi")
     anlegg.vent(f"samlelaas/{l['id']}/state", "frigitt")
     anlegg.pub(f"samlelaas/{l['id']}/set", "sperr")
     anlegg.vent(f"samlelaas/{l['id']}/state", "sperret")
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "auto")
 
 
 def test_samlelaas_frigitt_sperrer_sikring(anlegg, topo):
     l, tv = topo.samlelaas_togvei()
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")
     anlegg.pub(f"samlelaas/{l['id']}/set", "frigi")
     anlegg.vent(f"samlelaas/{l['id']}/state", "frigitt")
     t0 = anlegg.naa()
@@ -138,7 +135,6 @@ def test_samlelaas_frigitt_sperrer_sikring(anlegg, topo):
 
 def test_samlelaas_frigivning_avvist_av_togvei(anlegg, topo):
     l, tv = topo.samlelaas_togvei()
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")
     anlegg.pub(f"togvei/{tv['id']}/set", "sikre")
     anlegg.vent(f"togvei/{tv['id']}/state", ("aktiv", "sikring"), timeout=20)
     t0 = anlegg.naa()
@@ -152,29 +148,10 @@ def test_samlelaas_avviser_omlegging(anlegg, topo):
     vk = (l.get("omfatter") or [None])[0]
     if not vk:
         pytest.skip("samlelåsen omfatter ingen veksler")
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")
     anlegg.vent(f"samlelaas/{l['id']}/state", "sperret")
     t0 = anlegg.naa()
     anlegg.pub(f"sporveksel/{vk}/set", "avvik")
     anlegg.vent_ny(f"sporveksel/{vk}/info", "laast av samlelaas", t0)
-
-
-def test_samlelaas_nodutlosning(anlegg, topo):
-    """Nøkkelen tas ut UTEN frigivning mens en togvei over
-    virkeområdet er aktiv: kjørsignalet skal felles STRAKS."""
-    l, tv = topo.samlelaas_togvei()
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")
-    anlegg.pub(f"togvei/{tv['id']}/set", "sikre")
-    anlegg.vent(f"togvei/{tv['id']}/state", "aktiv", timeout=20)
-    anlegg.vent(f"hovedsignal/{tv['start']}/state", KJOR)
-    t0 = anlegg.naa()
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "ute")
-    anlegg.vent_ny("master/melding", "NOEDUTLOSNING", t0)
-    anlegg.vent(f"samlelaas/{l['id']}/state", "noekkel-ute")
-    anlegg.vent(f"hovedsignal/{tv['start']}/state", STOPP)
-    assert anlegg.tilstand[f"togvei/{tv['id']}/state"] == "aktiv"
-    anlegg.pub(f"samlelaas/{l['id']}/sim", "inne")   # rydd tar resten
-    anlegg.vent(f"samlelaas/{l['id']}/state", "sperret")
 
 
 # ---------- rigel — hoppes over uten rigler i konfigen ----------

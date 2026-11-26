@@ -32,6 +32,23 @@ OFL tillater bruk, endring og videredistribusjon sammen med
 programvare. Fonten kan ikke selges for seg selv, og et endret verk
 kan ikke bruke det reserverte fontnavnet.
 
+## Nordvester
+
+`nsi63-pi/hal-ui/Nordvester-Regular.ttf`
+(lisens og opphavsmerknad: `nsi63-pi/hal-ui/nordvester-OFL.txt`)
+
+Stasjonsnavnene i stillerapparatet. Nordvester er en endret utgave av
+Norwester, utvidet med Æ, Ø og Å (også i kapitéform) og med justerte
+vertikale mål. Den har nytt navn fordi «Norwester» er et reservert
+fontnavn.
+
+- Opprinnelig font: Norwester, © 2013 Jamie Wilson (jamiewilson.io)
+- Lisens: **SIL Open Font License 1.1**
+
+Samme vilkår som for Routed Gothic over: fri bruk og videredistribusjon
+sammen med programvare, ikke salg av fonten alene, og et endret verk
+kan ikke bruke det reserverte navnet.
+
 ## Kjøretidsavhengigheter
 
 Disse installeres av `bootstrap-nsi63.sh` fra distribusjonens

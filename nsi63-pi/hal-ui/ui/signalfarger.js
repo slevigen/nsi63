@@ -14,12 +14,14 @@
 //   forsignal2     gul (F1)   · grønn (F2)
 //   skiftesignal   gult i begge — høyt skiftesignal viser STREKER,
 //                  ikke runde linser (42 skrå, 41 loddrett)
+//   dvergsignal3   hvitt i alle tre (§ 8-23)
 const SIGNAL_LAMPEFARGE = {
   hovedsignal3:  ["#1fe04e", "#ff2a1e", "#1fe04e"],
   hovedsignal2:  ["#1fe04e", "#ff2a1e"],
   forsignal2:    ["#ffb400", "#1fe04e"],
   skiftesignal2: ["#ffb400", "#ffb400"],
   skiftesignal1: ["#ffb400"],
+  dvergsignal3:  ["#d7d9dc", "#d7d9dc", "#d7d9dc"],
 };
 
 // SLUKKET LINSE har sin EGEN farge, den regnes ikke ut av den tente.

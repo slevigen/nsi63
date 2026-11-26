@@ -281,7 +281,6 @@ class Anlegg:
         self.pub("frigivning/v/sim", "auto")
         self.pub("frigivning/h/sim", "auto")
         for l in topo.laaser:                    # tilbake til sperret
-            self.pub(f"samlelaas/{l['id']}/sim", "auto")
             self.pub(f"samlelaas/{l['id']}/set", "sperr")
         # Riglene: objektene tilbake i normalstilling, så sperring.
         # Tilbaketakingen har 10 s etterløp — vent bare når rigelen
