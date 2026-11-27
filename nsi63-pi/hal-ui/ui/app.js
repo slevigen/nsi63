@@ -2007,7 +2007,7 @@ async function renderNoder() {
           ? ` <span class="off" title="Deployet med endringer som ikke var committet — koden finnes ikke i noen commit">+ ukommittert</span>`
           : ``) +
         (v.tid ? ` · deployet ` + attr(new Date(v.tid).toLocaleString("nb-NO")) : ``)
-      : `ukjent versjon — installert uten deploy-pi.sh`) + `</p>`;
+      : `ingen versjonsinfo`) + `</p>`;
     if (thrHist.length)
       html += `<p class="hint">siden boot: ` + thrHist.join(", ") +
         ` har forekommet</p>`;
