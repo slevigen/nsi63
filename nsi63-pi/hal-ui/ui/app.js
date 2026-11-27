@@ -1873,7 +1873,7 @@ async function renderNoder() {
   // Fanen tegnes på nytt hvert 3. sekund; en åpnet kopiliste skal ikke
   // klappe sammen under brukeren
   const autoApen = !!document.querySelector("#auto-kopier[open]");
-  const [nodes, hal, master, lt, pi, an, ota, bs] = await Promise.all([
+  const [nodes, hal, master, lt, pi, an, ota, bs, ko] = await Promise.all([
     (await fetch("/api/nodes")).json(),
     (await fetch("/api/hal")).json(),
     (await fetch("/api/master")).json(),
@@ -1882,6 +1882,7 @@ async function renderNoder() {
     (await fetch("/api/anlegg")).json(),
     (await fetch("/api/ota")).json(),
     (await fetch("/api/backup-status")).json(),
+    (await fetch("/api/ota/ko")).json(),
   ]);
   SIGNALTYPER = hal.signaltyper || SIGNALTYPER;
   NODER = hal.noder || {};
@@ -2112,6 +2113,14 @@ async function renderNoder() {
     } else {
       html += `<p class="hint">ingen wifi-klienter tilkoblet</p>`;
     }
+    // Én fil til feilsøking på avstand. Den er IKKE en backup og
+    // nullstiller ikke backup-påminnelsen, selv om konfigen er med.
+    html += `<div class="bar" style="margin:8px 0 4px">
+      <button class="mini" onclick="location.href='/api/diagnostikk'">
+        Last ned diagnostikk</button>
+      <span class="hint">zip med Pi-, master- og nodestatus, konfig,
+      hendelseslogg og tjenestenes journal — til feilsøking</span>
+    </div>`;
     html += `</div>`;
   }
 
@@ -2141,7 +2150,7 @@ async function renderNoder() {
           onclick="document.getElementById('ota-fil').click()">
           Last opp firmware…</button>
         <span class="hint">${stat}</span>
-      </div></div>`;
+      </div>` + otaKoHtml(ko) + `</div>`;
   }
 
   // Master-kortet
@@ -2185,7 +2194,7 @@ async function renderNoder() {
         fmtSek(Date.now() / 1000 - m.ts) + ` siden)</span></p>`;
     if (ota[fwFil] && st)
       html += `<div class="bar" style="margin:8px 0 4px">
-        <button class="mini" onclick="otaStart('master')">Oppdater fw</button>
+        ${ko.kjorer ? `` : `<button class="mini" onclick="otaStart('master')">Oppdater fw</button>`}
       </div>`;
     html += `<p class="hint">Bytte av master krever ingen konfigurasjon:
       skru av den gamle, hold frontknappen på en hvilken som helst
@@ -2216,7 +2225,7 @@ async function renderNoder() {
         <button class="mini" onclick="saveAlias('${n.mac}')">Lagre navn</button>
         <button class="mini" onclick="findNode('${n.mac}')">Finn (blink)</button>
         <button class="mini" onclick="forgetNode('${n.mac}')">Fjern node</button>` +
-      (ota[fwFil] && n.online ? `
+      (ota[fwFil] && n.online && !ko.kjorer ? `
         <button class="mini" onclick="otaStart('${n.mac}')">Oppdater fw</button>`
                             : ``) + `
       </div>` +
@@ -2427,6 +2436,82 @@ async function betjenTogvei(id, hva) {
     : "ingen svar fra master — sikring kan pågå (veksler legges om), " +
       "eller masteren er frakoblet");
 }
+// ---------- OTA-køen: alle utdaterte noder, én om gangen ----------
+function otaKoNavn(n) { return attr(n.alias || n.mac); }
+function otaKoHtml(ko) {
+  if (!ko) return ``;
+  let h = `<div style="margin-top:8px">`;
+  if (ko.kjorer) {
+    const nr = ko.ferdig.length + ko.feilet.length + (ko.aktiv ? 1 : 0);
+    h += `<p><b>Oppdaterer noder: ${nr} av ${ko.antall}</b>` +
+      (ko.aktiv ? ` — nå: ${otaKoNavn(ko.aktiv)}` : ``) +
+      (ko.stopp ? ` <span class="off">stopper etter denne</span>` : ``) +
+      `</p>` + (ko.stopp ? `` :
+      `<button class="mini" onclick="otaKoStopp()">Stopp etter denne</button>`);
+  } else if (ko.kandidater.length) {
+    h += `<div class="bar" style="margin:0 0 4px">` +
+      (ko.hindring
+        ? `<span class="hint">${ko.kandidater.length} utdaterte noder — ` +
+          `kan ikke kjøre køen nå: ${attr(ko.hindring)}</span>`
+        : `<button class="mini" onclick="otaKoStart(${ko.kandidater.length})">
+             Oppdater alle utdaterte noder (${ko.kandidater.length})</button>
+           <span class="hint">én om gangen, neste når forrige har meldt
+           seg tilbake med ny firmware</span>`) +
+      `</div>`;
+  }
+  // Siste kjøring (også mens den pågår)
+  const rad = (n, tekst, kl) =>
+    `<li><span class="${kl}">${otaKoNavn(n)}</span> ${tekst}</li>`;
+  const linjer = [
+    ...ko.ferdig.map(n => rad(n, `oppdatert (${n.sekunder} s)`, "on")),
+    ...ko.feilet.map(n => rad(n, attr(n.grunn), "off")),
+    ...(ko.aktiv ? [rad(ko.aktiv, `henter firmware…`, "hint")] : []),
+    ...ko.venter.map(n => rad(n, `venter`, "hint")),
+    ...ko.avbrutt.map(n => rad(n, `avbrutt`, "hint")),
+  ];
+  if (linjer.length)
+    h += `<ul class="hint" style="margin:4px 0 0 18px;padding:0">` +
+         linjer.join("") + `</ul>`;
+  return h + `</div>`;
+}
+async function otaKoStart(antall) {
+  if (!confirm(`Oppdatere ${antall} node${antall === 1 ? "" : "r"}, én om ` +
+               `gangen?\n\nHver node er mørk (= stopp) i ~1 min mens den ` +
+               `henter firmware. Master oppdateres ikke av køen.`)) return;
+  const r = await fetch("/api/ota/ko", {method: "POST"});
+  const j = await apiJson(r);
+  if (!r.ok) { toast(j.error, true); return; }
+  toast(`OTA-kø startet: ${j.antall} noder`);
+  oppdaterOtaBanner();
+  renderNoder();
+}
+async function otaKoStopp() {
+  const r = await fetch("/api/ota/ko/stopp", {method: "POST"});
+  const j = await apiJson(r);
+  if (!r.ok) { toast(j.error, true); return; }
+  toast("OTA-køen stopper når noden som oppdateres nå er ferdig");
+  oppdaterOtaBanner();
+}
+// Banner på ALLE faner mens køen går: noder er mørke underveis, og det
+// skal ikke kunne overses fra Forrigling-fanen
+async function oppdaterOtaBanner() {
+  let ko;
+  try { ko = await (await fetch("/api/ota/ko")).json(); }
+  catch (e) { return; }
+  const b = document.getElementById("otabanner");
+  if (!b) return;
+  if (!ko.kjorer) { b.style.display = "none"; return; }
+  const nr = ko.ferdig.length + ko.feilet.length + (ko.aktiv ? 1 : 0);
+  document.getElementById("otabanner-txt").textContent =
+    `node ${nr} av ${ko.antall}` +
+    (ko.aktiv ? ` (${ko.aktiv.alias || ko.aktiv.mac})` : ``) +
+    (ko.feilet.length ? ` · ${ko.feilet.length} feilet` : ``) +
+    (ko.stopp ? ` · stopper etter denne` : ``);
+  document.getElementById("otabanner-stopp").style.display =
+    ko.stopp ? "none" : "";
+  b.style.display = "";
+}
+
 async function otaStart(maal) {
   const hvem = maal === "master"
     ? "master? Hele anlegget går i sikker tilstand ~1 min og henter " +
@@ -3370,6 +3455,7 @@ setInterval(async () => {
   // Backup-banneret: hvert 15. sekund holder (lagringer i denne
   // fanen oppdaterer det straks via loadAll)
   if (++backupTikk % 5 === 0) oppdaterBackup();
+  oppdaterOtaBanner();
   if (currentView === "noder") {
     // Ikke tegn på nytt mens brukeren skriver i et felt på fanen
     const ae = document.activeElement;

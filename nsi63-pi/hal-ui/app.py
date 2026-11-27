@@ -21,6 +21,7 @@ nsi63/master/hal. Nås på http://10.206.0.1:8080
 
 import copy
 import hashlib
+import io
 import json
 import os
 import re
@@ -28,6 +29,7 @@ import shutil
 import subprocess
 import threading
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1044,6 +1046,11 @@ def api_ota_firmware():
     stempelet her og husker det ved siden av for visning. MD5 regnes
     av Pi-en fra de mottatte bytene og serveres sammen med binæren;
     enheten verifiserer mot den før bootslot byttes."""
+    # Ny fil midt i køen: neste node ville hentet den nye binæren mens
+    # køen venter på det gamle stempelet, og alle ble meldt som feilet
+    if ota_ko["kjorer"]:
+        return jsonify({"error": "OTA-køen kjører — last opp ny "
+                                 "firmware når den er ferdig"}), 400
     f = request.files.get("file")
     if not f:
         return jsonify({"error": "ingen fil mottatt"}), 400
@@ -1085,6 +1092,12 @@ def api_ota_firmware():
 def api_ota_start():
     body = request.get_json(force=True) or {}
     maal = (body.get("maal") or "").strip().lower()
+    # Én OTA om gangen: kjører køen, venter den på at en node skal komme
+    # tilbake, og en ekstra oppdatering ved siden av ville forstyrret
+    # både ventingen og AP-et nodene laster ned over
+    if ota_ko["kjorer"]:
+        return jsonify({"error": "OTA-køen kjører — vent til den er "
+                                 "ferdig, eller stopp den"}), 400
     har_fw = any((OTA_DIR / f).exists() for f in OTA_FILER)
     if maal == "master":
         if not har_fw:
@@ -1097,6 +1110,151 @@ def api_ota_start():
         mq.publish(f"{ROT}espnow/{maal}/cmd", "ota")
         return jsonify({"ok": True, "maal": maal})
     return jsonify({"error": "mål må være 'master' eller en node-MAC"}), 400
+
+
+# ---------- OTA-kø: alle utdaterte noder, én om gangen ----------
+# En node er mørk (= stopp) i ~1 min mens den henter firmware over en
+# kort wifi-oppkobling til AP-et. Flere samtidig gir et anlegg med
+# mange mørke signaler og en AP som deler båndbredden — derfor én og
+# én, og neste først når forrige har MELDT SEG TILBAKE med det nye
+# byggestempelet. Masteren oppdateres fortsatt for seg (eget kort):
+# den bærer hele anlegget, og den skal man se på mens den gjør det.
+#
+# En node som ikke kommer tilbake innen fristen logges som feilet, og
+# køen går videre: OTA-en er MD5-verifisert mot passiv partisjon, så
+# den verste utgangen er at noden kjører gammel firmware videre.
+OTA_KO_FRIST_S = 90
+OTA_KO_PAUSE_S = 3
+MASTER_STILLE_S = 35          # samme grense som master-kortet bruker
+ota_ko = {"kjorer": False, "stopp": False, "stempel": "",
+          "aktiv": None, "venter": [], "ferdig": [], "feilet": [],
+          "avbrutt": [], "start_ts": None, "slutt_ts": None, "antall": 0}
+_ota_ko_sov = time.sleep      # byttes ut i testene
+
+
+def _ota_stempel() -> str:
+    sc = OTA_DIR / (OTA_FILER[0] + ".stempel")
+    return sc.read_text().strip() if sc.exists() else ""
+
+
+def _node(mac: str):
+    for n in (cache["nodes"] or {}).get("nodes") or []:
+        if n.get("mac") == mac:
+            return n
+    return None
+
+
+def _ota_ko_utvalg(stempel: str) -> list:
+    """Online noder med eldre byggestempel enn den opplastede fila.
+    Noder uten stempel (svært gammel firmware) tas ikke med: køen kan
+    ikke se når de er oppdatert. De oppdateres fra eget kort."""
+    alias = {(v or {}).get("mac"): k
+             for k, v in (load_hal().get("noder") or {}).items()}
+    ut = [{"mac": n["mac"], "alias": alias.get(n["mac"], ""),
+           "fra": n["bygget"]}
+          for n in (cache["nodes"] or {}).get("nodes") or []
+          if n.get("mac") and n.get("online") and n.get("bygget")
+          and n["bygget"] < stempel]
+    return sorted(ut, key=lambda x: ((x["alias"] or x["mac"]).lower(),
+                                     x["mac"]))
+
+
+def _ota_ko_hindring():
+    """Hvorfor køen ikke kan startes nå, eller None."""
+    if ota_ko["kjorer"]:
+        return "OTA-køen kjører allerede"
+    if not (OTA_DIR / OTA_FILER[0]).exists():
+        return "last opp firmware først"
+    if not _ota_stempel():
+        return ("firmwaren har ikke byggestempel (bygg med bygg-ota.sh) — "
+                "uten det kan køen ikke se når en node er oppdatert")
+    hort = cache.get("master_hort_ts")
+    if not hort or time.time() - hort >= MASTER_STILLE_S:
+        return ("master er stille — kommandoene til nodene går via "
+                "masteren")
+    if lamptest["running"]:
+        return "lampeprøve pågår — avslutt den først"
+    return None
+
+
+def _ota_ko_kjor():
+    stempel = ota_ko["stempel"]
+    try:
+        while ota_ko["venter"] and not ota_ko["stopp"]:
+            n = ota_ko["venter"].pop(0)
+            n = dict(n, start_ts=time.time())
+            ota_ko["aktiv"] = n
+            mq.publish(f"{ROT}espnow/{n['mac']}/cmd", "ota")
+            # Ventetiden telles i søvn, ikke i veggklokke: da kan testene
+            # styre den, og en klokke som stilles underveis (Pi-en har
+            # ingen RTC) forkorter eller forlenger ikke fristen
+            ventet, ok = 0, False
+            while ventet < OTA_KO_FRIST_S:
+                _ota_ko_sov(1)
+                ventet += 1
+                x = _node(n["mac"])
+                if x and x.get("online") and x.get("bygget") == stempel:
+                    ok = True
+                    break
+            n["sekunder"] = ventet
+            if ok:
+                ota_ko["ferdig"].append(n)
+            else:
+                x = _node(n["mac"])
+                meldt = (x or {}).get("bygget")
+                n["grunn"] = (f"ikke tilbake med {stempel} innen "
+                              f"{OTA_KO_FRIST_S} s" +
+                              ("" if not x else
+                               " (offline)" if not x.get("online") else
+                               f" (melder {meldt})"))
+                ota_ko["feilet"].append(n)
+            ota_ko["aktiv"] = None
+            if ota_ko["venter"] and not ota_ko["stopp"]:
+                _ota_ko_sov(OTA_KO_PAUSE_S)
+        if ota_ko["stopp"]:
+            ota_ko["avbrutt"] = ota_ko["venter"]
+            ota_ko["venter"] = []
+    finally:
+        ota_ko["aktiv"] = None
+        ota_ko["kjorer"] = False
+        ota_ko["slutt_ts"] = time.time()
+
+
+@app.get("/api/ota/ko")
+def api_ota_ko():
+    st = _ota_stempel()
+    return jsonify(dict(ota_ko, kandidater=_ota_ko_utvalg(st) if st else [],
+                        hindring=_ota_ko_hindring()))
+
+
+@app.post("/api/ota/ko")
+def api_ota_ko_start():
+    with lock:                      # sjekk-og-sett, som lampeprøven
+        feil = _ota_ko_hindring()
+        if feil:
+            return jsonify({"error": feil}), 400
+        stempel = _ota_stempel()
+        utvalg = _ota_ko_utvalg(stempel)
+        if not utvalg:
+            return jsonify({"error": "ingen utdaterte noder online"}), 400
+        ota_ko.update(kjorer=True, stopp=False, stempel=stempel,
+                      aktiv=None, venter=utvalg, ferdig=[], feilet=[],
+                      avbrutt=[], start_ts=time.time(), slutt_ts=None,
+                      antall=len(utvalg))
+    # antall FØR tråden starter: den tømmer «venter» (samme liste)
+    antall = len(utvalg)
+    threading.Thread(target=_ota_ko_kjor, daemon=True).start()
+    return jsonify({"ok": True, "antall": antall})
+
+
+@app.post("/api/ota/ko/stopp")
+def api_ota_ko_stopp():
+    """Noden som oppdateres nå får fullføre — den er alt i gang, og å
+    slutte å vente på den endrer ingenting for den. Resten avbrytes."""
+    if not ota_ko["kjorer"]:
+        return jsonify({"error": "OTA-køen kjører ikke"}), 400
+    ota_ko["stopp"] = True
+    return jsonify({"ok": True})
 
 
 # ---------- Pi-status: temperatur, nett, klienter, tjenester ----------
@@ -1243,6 +1401,13 @@ def api_pi():
     now = time.time()
     if _pi_cache["data"] and now - _pi_cache["ts"] < 3:
         return jsonify(_pi_cache["data"])
+    d = _pi_data()
+    _pi_cache.update(ts=now, data=d)
+    return jsonify(d)
+
+
+def _pi_data() -> dict:
+    """Pi-ens helse: temperatur, strøm, nett, tjenester, versjon."""
     d = {"temp": _pi_temp(), "throttled": _pi_throttled(),
          "ips": _pi_ips(), "klienter": _pi_klienter(),
          "tjenester": _pi_tjenester(), "ntp": _ntp_synk(),
@@ -1284,8 +1449,7 @@ def api_pi():
     except Exception:
         d["modell"] = None
     d["hal_ui"] = _les_versjon()
-    _pi_cache.update(ts=now, data=d)
-    return jsonify(d)
+    return d
 
 
 # Skrevet av deploy-pi.sh: hvilken commit som kjører her. Mangler den,
@@ -2373,6 +2537,79 @@ def api_hendelser_fil():
                      download_name="nsi63-hendelser.jsonl", max_age=0)
 
 
+# ---------- diagnostikk-eksport ----------
+# Én fil med alt som trengs for å feilsøke et anlegg på avstand: hva
+# Pi-en, masteren og nodene melder, konfigen, svartboksloggen og
+# tjenestenes journal. Lages i minnet — ingenting skrives til SD-kortet,
+# og backup-påminnelsen røres ikke (dette er ikke brukerens backup).
+DIAG_HENDELSER_BYTE = 400_000
+DIAG_TJENESTER = ("nsi63-hal", "mosquitto", "hostapd", "dnsmasq",
+                  "nsi63-sta-watchdog")
+
+
+def _hendelser_hale(maks: int = 0) -> bytes:
+    """Siste del av svartboksloggen, kuttet på en hel linje."""
+    maks = maks or DIAG_HENDELSER_BYTE
+    try:
+        with open(HENDELSE_FIL, "rb") as f:
+            f.seek(0, 2)
+            start = max(0, f.tell() - maks)
+            f.seek(start)
+            data = f.read()
+    except OSError:
+        return b""
+    if start > 0:
+        data = data.split(b"\n", 1)[-1]   # første linje kan være halv
+    return data
+
+
+def _journal() -> str:
+    args = ["journalctl", "--no-pager", "-n", "200", "-o", "short-iso"]
+    for t in DIAG_TJENESTER:
+        args += ["-u", t]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=10)
+        return (r.stdout or "") + (r.stderr or "") or "(tom journal)\n"
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"(journalctl utilgjengelig: {e})\n"
+
+
+@app.get("/api/diagnostikk")
+def api_diagnostikk():
+    naa = datetime.now()
+    aid = _les_anlegg()["id"] or "uten-id"
+    # Endepunktenes egne svar: samme utsnitt som UI-et viser, så det
+    # som står i pakken er det brukeren så på skjermen
+    oppsummering = {
+        "laget": naa.astimezone().isoformat(timespec="seconds"),
+        "anlegg": _les_anlegg(),
+        "pi": _pi_data(),
+        "master": api_master().get_json(),
+        "master_ack": {"hal": cache.get("master_ack"),
+                       "forrigling": cache.get("forrigling_ack"),
+                       "anlegg": cache.get("anlegg_ack")},
+        "noder": cache.get("nodes"),
+        "ota": api_ota().get_json(),
+        "backup": api_backup_status().get_json(),
+        "lampeprove": dict(lamptest),
+        "hendelseslogg_aktiv": HENDELSE_AKTIV_FIL.exists(),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("oppsummering.json",
+                   json.dumps(oppsummering, ensure_ascii=False, indent=2,
+                              default=str))
+        z.writestr("konfig-backup.json",
+                   json.dumps(_backup_bundle(), ensure_ascii=False, indent=2))
+        z.writestr("hendelser.jsonl", _hendelser_hale())
+        z.writestr("journal.txt", _journal())
+    navn = f"nsi63-diagnostikk-{aid}-{naa.strftime('%Y%m%d-%H%M%S')}.zip"
+    return Response(buf.getvalue(), mimetype="application/zip",
+                    headers={"Content-Disposition":
+                             f"attachment; filename={navn}",
+                             "Cache-Control": "no-store"})
+
+
 @app.get("/api/lamptest")
 def api_lamptest_status():
     return jsonify(lamptest)
@@ -2390,6 +2627,11 @@ def api_lamptest():
     with lock:
         if lamptest["running"]:
             return jsonify({"error": "lampeprøve pågår allerede"}), 400
+        # En node som henter firmware er mørk — lampeprøven ville meldt
+        # den som feil, og den ville forstyrret ventingen i køen
+        if ota_ko["kjorer"]:
+            return jsonify({"error": "OTA-køen kjører — vent til den er "
+                                     "ferdig"}), 400
         lamptest["running"] = True
     threading.Thread(target=run_lamptest, daemon=True).start()
     return jsonify({"ok": True})

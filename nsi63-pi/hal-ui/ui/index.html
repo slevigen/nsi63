@@ -29,6 +29,12 @@
   <button class="mini" style="margin-left:12px"
           onclick="slaAvTestmodus()">Skru av testmodus</button>
 </div>
+<div id="otabanner" style="display:none;background:#0f4a4a;color:#cdf4f4;
+     padding:8px 14px;border-radius:8px;margin:8px 0;font-weight:600">
+  ⟳ OTA-KØ — <span id="otabanner-txt"></span>
+  <button class="mini" style="margin-left:12px" id="otabanner-stopp"
+          onclick="otaKoStopp()">Stopp etter denne</button>
+</div>
 <div id="backupbanner" style="display:none;background:#173f5f;color:#d6ebff;
      padding:8px 14px;border-radius:8px;margin:8px 0">
   💾 <span id="backupbanner-txt"></span>
