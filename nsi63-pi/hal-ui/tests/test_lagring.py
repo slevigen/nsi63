@@ -240,3 +240,54 @@ def test_sim_knappene_kan_slaas_paa_og_baeres_gjennom(fersk):
     r = fersk.klient.post("/api/anlegg", json={"id": "", "testmodus": False})
     assert r.status_code == 200, _feil(r)
     assert fersk.fil("anlegg.json")["vis_sim"] is True
+
+
+# ---------- konfigbufferet ----------
+
+def _info(h, **felt):
+    h.app.cache["master_info"] = dict(felt)
+
+
+def test_konfig_publiseres_kompakt(anlegg):
+    """Det som publiseres er kompakt — og valideringen måler akkurat det."""
+    anlegg.app.hevd_konfig()
+    pl = anlegg.mq.retained["nsi63/config/hal"]
+    assert ", " not in pl[:200] and '": ' not in pl[:200]
+    hal = anlegg.app.load_hal()
+    assert len(pl.encode()) == len(anlegg.app.konfig_json(hal).encode())
+
+
+def test_validering_folger_masterens_buffer(anlegg):
+    """En master med mindre buffer (eldre firmware: 16 kB) skal avvise
+    det en 24 kB-master tar imot — HAL-UI måler mot det masteren melder."""
+    a = anlegg.app
+    hal = a.load_hal()
+    n = len(a.konfig_json(hal).encode())
+    _info(anlegg, buf=n + 512 - 1)            # akkurat for lite
+    assert a._for_stor(hal, "HAL") is not None
+    _info(anlegg, buf=n + 512)                # akkurat nok
+    assert a._for_stor(hal, "HAL") is None
+
+
+def test_validering_uten_masterinfo_bruker_standard(anlegg):
+    a = anlegg.app
+    a.cache["master_info"] = None
+    assert a._master_buffer() == a.MASTER_MQTT_BUFFER
+    _info(anlegg, buf=10 ** 6)                # aldri mer enn standarden
+    assert a._master_buffer() == a.MASTER_MQTT_BUFFER
+
+
+def test_for_stor_konfig_avvises_ved_lagring(fersk):
+    a = fersk.app
+    _info(fersk, buf=4096)
+    fns = [{"id": f"F{i}", "type": "sporfelt", "bindinger": []}
+           for i in range(80)]
+    r = fersk.klient.post("/api/hal", json={"functions": fns})
+    assert r.status_code == 400 and "byte" in r.get_json()["error"]
+
+
+def test_feilet_masterbuffer_gir_ikke_negativ_grense(anlegg):
+    """setBufferSize() som feilet ved oppstart: PubSubClient faller til 256."""
+    _info(anlegg, buf=256)
+    feil = anlegg.app._for_stor(anlegg.app.load_hal(), "HAL")
+    assert feil and "maks 0" in feil

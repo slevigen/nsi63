@@ -75,8 +75,27 @@ MAX_LITRA         = 23    # sizeof(HalEntry::id) - 1
 # meldingen i STILLHET: callbacket kjører aldri, master beholder
 # gammel konfig, og UI-et svarer «lagret». Marginen dekker tema
 # (~20 byte), MQTT-header og litt slark.
-MASTER_MQTT_BUFFER = 16384
-MAX_PAYLOAD        = MASTER_MQTT_BUFFER - 512
+MASTER_MQTT_BUFFER = 24576   # kKonfigMaks i hal_konfig.h
+
+
+def _master_buffer() -> int:
+    """Bufferet masteren FAKTISK har (master/info «buf»), aldri mer enn
+    MASTER_MQTT_BUFFER. En master med eldre firmware (16 kB) eller en
+    som ikke fikk sitt buffer ved oppstart, melder et lavere tall — og
+    da skal valideringen følge den, ikke det denne fila tror."""
+    info = cache.get("master_info") or {}
+    try:
+        buf = int(info.get("buf") or 0)
+    except (TypeError, ValueError):
+        buf = 0
+    return min(MASTER_MQTT_BUFFER, buf) if buf > 0 else MASTER_MQTT_BUFFER
+
+
+def konfig_json(data: dict) -> str:
+    """Konfigen slik den PUBLISERES: kompakt (uten mellomrom etter , og
+    :), ca. 10 % mindre — det er bindingene som fyller bufferet, og der
+    teller hvert tegn. hal.json på disk skrives fortsatt luftig."""
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 CONFIG_TOPIC = ROT + "config/hal"
 NODES_TOPIC = ROT + "master/nodes"
 MASTER_ACK_TOPIC = ROT + "master/hal"
@@ -450,7 +469,7 @@ mq.on_message = on_message
 
 
 def publish_config(data: dict):
-    mq.publish(CONFIG_TOPIC, json.dumps(data, ensure_ascii=False), retain=True)
+    mq.publish(CONFIG_TOPIC, konfig_json(data), retain=True)
 
 
 # ---------- hal.json ----------
@@ -1533,10 +1552,14 @@ def _for_stor(data: dict, hva: str):
     mens master fortsetter på gammel konfig, og det eneste sporet er at
     versjonen i kvitteringen ikke følger med.
     """
-    n = len(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-    if n <= MAX_PAYLOAD:
+    # Måles på NØYAKTIG det som publiseres (konfig_json), mot bufferet
+    # masteren selv melder. Marginen (512) dekker tema og MQTT-header.
+    n = len(konfig_json(data).encode("utf-8"))
+    # (et buffer som feilet ved oppstart melder 256 — aldri negativ grense)
+    maks = max(0, _master_buffer() - 512)
+    if n <= maks:
         return None
-    return (f"{hva} er {n} byte — masteren tar maks {MAX_PAYLOAD}. "
+    return (f"{hva} er {n} byte — masteren tar maks {maks}. "
             f"Reduser antall objekter eller bindinger.")
 
 
@@ -2021,8 +2044,7 @@ def load_forrigling() -> dict:
 
 
 def publish_forrigling(data: dict):
-    mq.publish(FORRIGLING_TOPIC, json.dumps(data, ensure_ascii=False),
-               retain=True)
+    mq.publish(FORRIGLING_TOPIC, konfig_json(data), retain=True)
 
 
 @app.get("/api/forrigling")
