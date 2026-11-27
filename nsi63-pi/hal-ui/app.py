@@ -865,7 +865,12 @@ def _les_anlegg() -> dict:
             "hjelpeutlosning_s": tider["hjelpeutlosning_s"],
             # Dekningsstilling: krysningsvekselen i motsatt ende legges vekk
             # fra togveiens spor ved sikring av innkjørtogvei, uten å låses.
-            "dekningsstilling": bool(d.get("dekningsstilling", True))}
+            "dekningsstilling": bool(d.get("dekningsstilling", True)),
+            # Sim-knappene på /panel (sporfelt Belagt/Fritt/Sensor og
+            # bryternes «Fysisk»): et testverktøy. «Fritt» overstyrer
+            # sensorene, og forriglingen stoler på det — derfor SKJULT
+            # som standard, og må slås på bevisst for benktesting.
+            "vis_sim": bool(d.get("vis_sim", False))}
 
 
 @app.get("/api/anlegg")
@@ -937,6 +942,9 @@ def api_anlegg_save():
     testmodus = bool(data.get("testmodus", False))
     fjernstyrt = bool(data.get("fjernstyrt", True))
     dekning = bool(data.get("dekningsstilling", True))
+    # Bæres gjennom som navnene: et lagre-kall som ikke nevner feltet
+    # (en eldre UI-fane) skal ikke slå det av
+    vis_sim = bool(data.get("vis_sim", naa["vis_sim"]))
     # Tidslåsene: AVVIS verdier utenfor grensene i stedet for å klemme
     # dem stille. Den som skriver 3 sekunders hjelpeutløsning skal få
     # vite at det ikke går, ikke oppdage 5 neste gang siden åpnes.
@@ -969,7 +977,8 @@ def api_anlegg_save():
          "fjernstyrt": fjernstyrt, "tider": tider,
          # ... og speilet på toppnivå for en master som ikke er oppdatert
          "hjelpeutlosning_s": tider["hjelpeutlosning_s"],
-         "dekningsstilling": dekning}
+         "dekningsstilling": dekning,
+         "vis_sim": vis_sim}
     with lock:                              # samme mønster som hal/forrigling:
         _skriv_atomisk(ANLEGG_FILE, d)      # atomisk, holdbart, og
         # Rekkefølgen er viktig: publiser konfigen FØR hostapd evt.

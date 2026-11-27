@@ -176,6 +176,9 @@
                font-size: 34px; font-weight: 800; letter-spacing: 3px;
                color: #e05252; text-align: center; }
   body.dod #frakoblet { display: flex; }
+  /* Simuleringsknappene (sporfelt og «Fysisk») er et testverktøy og
+     vises bare når anlegget har slått dem på (vis_sim i anlegg.json) */
+  body:not(.vis-sim) section.sim { display: none; }
   /* Kontrollinjen: under betjeningsfeltet, utenfor frontplata. Den
      hører til nettbrettet, ikke apparatet, og skal se ut som det. */
   #kontroll { display: flex; justify-content: flex-end; align-items: center;
@@ -459,7 +462,12 @@ klient.on("message", (tema, rå, pakke) => {
     klokkeTilstand(pl, !!(pakke && pakke.retain));
   if (tema === "config/hal")        { K.hal = trygJson(pl); bygg(); return; }
   if (tema === "config/forrigling") { K.fr = trygJson(pl); bygg(); return; }
-  if (tema === "config/anlegg")     { K.anlegg = trygJson(pl); titt(); return; }
+  if (tema === "config/anlegg") {
+    K.anlegg = trygJson(pl);
+    document.body.classList.toggle("vis-sim", !!(K.anlegg && K.anlegg.vis_sim));
+    titt();
+    return;
+  }
   TIL[tema] = pl;
   (BIND[tema] || []).forEach(f => f(pl));
   if (tema.endsWith("/info") || tema === "master/melding") logg(tema, pl);
@@ -540,7 +548,7 @@ function bygg() {
   /* Sporfelt — visning + simulering (benketesting: uten sensorer er
      dette eneste måten å «kjøre tog» fra panelet, f.eks. for å nå
      klar-utlos i sistevognskontrollen) */
-  h += `<section><h2>Sporfelt <span class="hint">simuleringsknappene
+  h += `<section class="sim"><h2>Sporfelt <span class="hint">simuleringsknappene
     overstyrer sensorene — «Sensor» gir dem tilbake</span></h2>`;
   for (const f of felt) {
     h += `<div class="rad"><span class="litra">${f.id}</span>
@@ -560,7 +568,7 @@ function bygg() {
   // trykknapper der, Lok I og Lok II er stillere, og de går over /set
   // ved siden av de fysiske bryterne. «Fysisk» slipper en SIM (satt
   // fra benken eller mqtt-test), som ellers overstyrer begge.
-  h += `<section><h2>Brytere
+  h += `<section class="sim"><h2>Brytere
     <span class="hint">slipp simuleringen</span></h2>
     <div class="rad"><span class="litra">Sign.stp</span>
       <span class="st" data-b="master/signalstopp">–</span>

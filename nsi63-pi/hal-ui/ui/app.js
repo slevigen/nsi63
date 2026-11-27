@@ -1947,6 +1947,13 @@ async function renderNoder() {
                style="white-space:nowrap;flex:0 0 auto;cursor:pointer;color:#e0b050"
                title="TESTMODUS: MQTT-kommandoer på nsi63/<klasse>/<litra>/set og nsi63/sporveksel/<id>/set omgår signalstopp, oppstartsperre, vekselfelt-vernet, togvei-låsen og skiftesignalets område. Stillerapparatet er ALDRI omgått, og sikring av togvei kontrolleres alltid. Skru AV før anlegget settes i drift.">
           testmodus</label>
+        <input type="checkbox" id="anlegg-vis-sim"
+               style="width:auto;flex:0 0 auto;margin:0 0 0 10px"
+               ${an.vis_sim ? "checked" : ""}>
+        <label for="anlegg-vis-sim" class="hint"
+               style="white-space:nowrap;flex:0 0 auto;cursor:pointer"
+               title="Vis simuleringsknappene under sporplanen på /panel: sporfeltenes Belagt/Fritt/Sensor og bryternes «Fysisk». Et testverktøy for benken — «Fritt» overstyrer sensorene, og forriglingen stoler på det. Skjult som standard; la det være av på et anlegg i drift.">
+          sim-knapper</label>
         <button class="mini" style="flex:0 0 auto"
                 onclick="saveAnlegg()">Lagre</button>
         <span class="hint" style="flex:1 1 220px">${st}</span>
@@ -2561,6 +2568,7 @@ async function saveAnlegg() {
   const testmodus = document.getElementById("anlegg-test").checked;
   const fjernstyrt = document.getElementById("anlegg-fjern").checked;
   const dekningsstilling = document.getElementById("anlegg-dekning").checked;
+  const vis_sim = document.getElementById("anlegg-vis-sim").checked;
   const navn = document.getElementById("anlegg-navn").value.trim();
   const nabo_venstre = document.getElementById("anlegg-nabo-v").value.trim();
   const nabo_hoyre = document.getElementById("anlegg-nabo-h").value.trim();
@@ -2573,7 +2581,7 @@ async function saveAnlegg() {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({id, navn, nabo_venstre, nabo_hoyre,
                           adopter, testmodus, fjernstyrt,
-                          dekningsstilling, tider})});
+                          dekningsstilling, vis_sim, tider})});
   const j = await apiJson(r);
   if (!r.ok) { toast(j.error, true); return; }
   settTittel(j.id);

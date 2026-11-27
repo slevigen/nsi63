@@ -293,20 +293,34 @@ class Anlegg:
         # Riglene: objektene tilbake i normalstilling, så sperring.
         # Tilbaketakingen har 10 s etterløp — vent bare når rigelen
         # faktisk sto frigitt (ellers koster hver test 10 s uansett).
-        rigel_vent = []
+        # Kommandoene sendes PÅ NYTT til tilstanden er nådd. Masteren
+        # kan miste wifi i noen sekunder, og MQTT med QoS 0 til en
+        # frakoblet klient går tapt uten feil — da ble en rigel eller
+        # togvei stående, og NESTE test feilet i oppryddingen.
+        frist = time.time() + 30
+        while True:
+            igjen = [r for r in topo.rigler
+                     if self.tilstand.get(f"rigel/{r['id']}/state")
+                     not in (None, "sperret")]
+            if not igjen or time.time() > frist:
+                break
+            for r in igjen:
+                # Etterløpet fullføres først når objektene ligger i
+                # normal. Gikk den kommandoen tapt, står det i det
+                # uendelige — så objektene sendes til normal også da
+                # (de er ikke låst under etterløpet). En ny «sperr»
+                # ville derimot startet etterløpet på nytt.
+                for obj in r.get("omfatter") or []:
+                    if topo.er_sporsperre(obj):
+                        self.pub(f"sporsperre/{obj}/set", "paalagt")
+                    else:
+                        self.pub(f"sporveksel/{obj}/set", "normal")
+                if self.tilstand.get(f"rigel/{r['id']}/state") != "etterlop":
+                    self.pub(f"rigel/{r['id']}/set", "sperr")
+            time.sleep(2)
         for r in topo.rigler:
-            st = self.tilstand.get(f"rigel/{r['id']}/state")
-            if st is None or st == "sperret":
-                continue
-            for obj in r.get("omfatter") or []:
-                if topo.er_sporsperre(obj):
-                    self.pub(f"sporsperre/{obj}/set", "paalagt")
-                else:
-                    self.pub(f"sporveksel/{obj}/set", "normal")
-            self.pub(f"rigel/{r['id']}/set", "sperr")
-            rigel_vent.append(r["id"])
-        for rid in rigel_vent:
-            self.vent(f"rigel/{rid}/state", "sperret", timeout=15)
+            if self.tilstand.get(f"rigel/{r['id']}/state") is not None:
+                self.vent(f"rigel/{r['id']}/state", "sperret", timeout=1)
         self.pub("jord/sim", "trykk")       # ufarlig når sperren ikke står
         # «fri» FØR «av»: et felt uten sensorer beholder siste tilstand
         # når simuleringen slippes (ingen sensor kan friskmelde det) —
@@ -318,14 +332,26 @@ class Anlegg:
         for fid in topo.felt:
             self.pub(f"sporfelt/{fid}/sim", "av")
         time.sleep(0.5)
+        # Samme gjentakelse for togveiene. Den dekker også et kappløp:
+        # en togvei som ennå var under sikring da «stopp» kom, kunne bli
+        # aktiv med kjørsignal før «hjelpeutlos» — og da ble utløsningen
+        # (riktig nok) avvist.
+        frist = time.time() + 20
+        while True:
+            igjen = [tv for tv in topo.togveier
+                     if self.tilstand.get(f"togvei/{tv['id']}/state")
+                     not in (None, "ledig")]
+            if not igjen or time.time() > frist:
+                break
+            for tv in igjen:
+                self.pub(f"togvei/{tv['id']}/set", "kvitter")  # ev. klar-utlos
+                self.pub(f"togvei/{tv['id']}/set", "stopp")    # trinn 1
+            time.sleep(0.5)
+            for tv in igjen:
+                self.pub(f"togvei/{tv['id']}/set", "hjelpeutlos")  # trinn 2
+            time.sleep(1.0)
         for tv in topo.togveier:
-            self.pub(f"togvei/{tv['id']}/set", "kvitter")   # ev. klar-utlos
-            self.pub(f"togvei/{tv['id']}/set", "stopp")     # trinn 1
-        time.sleep(0.5)
-        for tv in topo.togveier:
-            self.pub(f"togvei/{tv['id']}/set", "hjelpeutlos")  # trinn 2
-        for tv in topo.togveier:
-            self.vent(f"togvei/{tv['id']}/state", "ledig", timeout=10)
+            self.vent(f"togvei/{tv['id']}/state", ("ledig", None), timeout=1)
 
 
 @pytest.fixture(scope="session")

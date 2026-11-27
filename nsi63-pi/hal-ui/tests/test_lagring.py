@@ -221,3 +221,22 @@ def test_ugyldig_anleggs_id_avvises(fersk, aid):
     assert r.status_code == 400
     assert not (fersk.mappe / "anlegg.json").exists()
     assert not fersk.subprocess_kall
+
+
+# ---------- sim-knappene på panelet ----------
+
+def test_sim_knappene_er_skjult_som_standard(fersk):
+    assert fersk.klient.get("/api/anlegg").get_json()["vis_sim"] is False
+
+
+def test_sim_knappene_kan_slaas_paa_og_baeres_gjennom(fersk):
+    r = fersk.klient.post("/api/anlegg", json={"id": "", "vis_sim": True})
+    assert r.status_code == 200, _feil(r)
+    assert fersk.fil("anlegg.json")["vis_sim"] is True
+    # Retained til panelet, som skjuler/viser seksjonene etter feltet
+    assert fersk.mq.retained_json("nsi63/config/anlegg")["vis_sim"] is True
+    # Et lagre-kall som ikke nevner feltet (eldre fane, testmodus-
+    # snarveien) skal ikke slå det av
+    r = fersk.klient.post("/api/anlegg", json={"id": "", "testmodus": False})
+    assert r.status_code == 200, _feil(r)
+    assert fersk.fil("anlegg.json")["vis_sim"] is True
