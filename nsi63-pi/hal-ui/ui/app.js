@@ -1416,7 +1416,61 @@ async function pollAck(version) {
   }
   msg.textContent += " — venter fortsatt på master-kvittering";
 }
+// ---------- backup-påminnelse ----------
+// Pi-en husker hva siste nedlastede backup inneholdt (/api/backup-status);
+// banneret står på ALLE faner til konfigen igjen finnes som fil hos
+// brukeren. Et SD-kort som dør tar ellers med seg alt som er lagret
+// siden sist.
+let BACKUP = null;
+const BACKUP_HVA = {hal: "objekter", forrigling: "forrigling",
+                    anlegg: "anlegget"};
+async function oppdaterBackup() {
+  try {
+    BACKUP = await (await fetch("/api/backup-status")).json();
+  } catch (e) { return; }
+  const b = document.getElementById("backupbanner");
+  if (!b) return;
+  if (BACKUP.endret) {
+    document.getElementById("backupbanner-txt").textContent =
+      (BACKUP.sist
+        ? `Endret siden siste backup (` +
+          BACKUP.hva.map(k => BACKUP_HVA[k] || k).join(", ") + `).`
+        : `Ingen backup lastet ned fra denne Pi-en ennå.`) +
+      ` Et SD-kort som svikter tar med seg alt som ikke er lastet ned.`;
+    b.style.display = "";
+  } else {
+    b.style.display = "none";
+  }
+}
+// Etter ENHVER vellykket skriving mot API-et: lagring av objekter,
+// forrigling, anlegg, kallenavn, gjenoppretting … Én krok her i stedet
+// for et kall i hver lagringsfunksjon, som en ny funksjon lett glemmer.
+{
+  const ekteFetch = window.fetch.bind(window);
+  window.fetch = async (url, opt) => {
+    const r = await ekteFetch(url, opt);
+    const metode = ((opt && opt.method) || "GET").toUpperCase();
+    if (metode !== "GET" && r.ok && String(url).startsWith("/api/")
+        && !String(url).startsWith("/api/backup")) {
+      setTimeout(oppdaterBackup, 300);
+    }
+    return r;
+  };
+}
+function lastNedBackup() {
+  location.href = "/api/backup";
+  // Pi-en noterer nedlastingen når filen serveres
+  setTimeout(async () => {
+    await oppdaterBackup();
+    if (currentView === "noder") renderNoder();
+  }, 1500);
+}
+function fmtBackupTid(iso) {
+  return iso ? new Date(iso).toLocaleString("nb-NO") : "aldri";
+}
+
 async function loadAll() {
+  oppdaterBackup();
   fetch("/api/anlegg").then(r => r.json())
     .then(a => {
       settTittel(a.id);
@@ -1816,7 +1870,10 @@ function fmtSek(s) {
   return m + "m";
 }
 async function renderNoder() {
-  const [nodes, hal, master, lt, pi, an, ota] = await Promise.all([
+  // Fanen tegnes på nytt hvert 3. sekund; en åpnet kopiliste skal ikke
+  // klappe sammen under brukeren
+  const autoApen = !!document.querySelector("#auto-kopier[open]");
+  const [nodes, hal, master, lt, pi, an, ota, bs] = await Promise.all([
     (await fetch("/api/nodes")).json(),
     (await fetch("/api/hal")).json(),
     (await fetch("/api/master")).json(),
@@ -1824,6 +1881,7 @@ async function renderNoder() {
     (await fetch("/api/pi")).json(),
     (await fetch("/api/anlegg")).json(),
     (await fetch("/api/ota")).json(),
+    (await fetch("/api/backup-status")).json(),
   ]);
   SIGNALTYPER = hal.signaltyper || SIGNALTYPER;
   NODER = hal.noder || {};
@@ -1964,12 +2022,26 @@ async function renderNoder() {
     konfigurasjon og publiserer til master (anleggs-ID-en i backupen
     vises, men tas aldri i bruk automatisk).</p>
     <div class="bar" style="margin:8px 0 4px">
-      <button class="mini" onclick="location.href='/api/backup'">
+      <button class="mini" onclick="lastNedBackup()">
         Last ned backup</button>
       <button class="mini"
         onclick="document.getElementById('restoreFile').click()">
         Gjenopprett fra backup…</button>
-    </div></div>`;
+      <span class="hint">sist lastet ned: ` + fmtBackupTid(bs.sist) +
+      (bs.endret ? ` · <span class="off">endret siden</span>` : ``) +
+      `</span>
+    </div>` +
+    ((bs.auto || []).length ? `
+    <details id="auto-kopier" style="margin-top:6px"${autoApen ? " open" : ""}><summary class="hint">
+      ${bs.auto.length} automatiske kopier på Pi-en</summary>
+      <p class="hint">Tas etter hver lagring (de siste 20 beholdes) — for
+      å angre en lagring som ble feil. De ligger på samme SD-kort som
+      konfigen, så de erstatter ikke en nedlastet backup. Last ned en og
+      bruk «Gjenopprett fra backup…».</p>
+      <p class="hint">` + bs.auto.map(n =>
+        `<a href="/api/backup-auto/${attr(n)}">` +
+        attr(n.replace(/^nsi63-auto-|\.json$/g, "")) + `</a>`).join(" · ") +
+      `</p></details>` : ``) + `</div>`;
 
   // Pi-kortet: temperatur, strøm, nett, klienter, tjenester
   {
@@ -3250,6 +3322,7 @@ loadAll();
 showView(faneFraHash());   // reload/bokmerke lander på riktig fane
 klokkeSjekk();
 setInterval(klokkeSjekk, 300000);
+let backupTikk = 0;
 setInterval(async () => {
   // Levende inngangsverdier på Kabling-siden. Bare når fanen er
   // framme — ellers ville hvert eneste anlegg hentet dem hvert
@@ -3294,6 +3367,9 @@ setInterval(async () => {
     }
     document.getElementById("testbanner").style.display = paa ? "" : "none";
   } catch (e) {}
+  // Backup-banneret: hvert 15. sekund holder (lagringer i denne
+  // fanen oppdaterer det straks via loadAll)
+  if (++backupTikk % 5 === 0) oppdaterBackup();
   if (currentView === "noder") {
     // Ikke tegn på nytt mens brukeren skriver i et felt på fanen
     const ae = document.activeElement;

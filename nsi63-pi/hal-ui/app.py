@@ -625,12 +625,17 @@ def _skriv_atomisk(fil, data: dict) -> None:
         json.dump(data, fh, ensure_ascii=False, indent=2)
         fh.flush()
         os.fsync(fh.fileno())
+    konfig = fil in (HAL_FILE, FORRIGLING_FILE, ANLEGG_FILE)
+    if konfig:
+        _auto_backup(utgangspunkt=True)   # før første endring
     tmp.replace(fil)
     dfd = os.open(str(fil.parent), os.O_RDONLY)
     try:
         os.fsync(dfd)
     finally:
         os.close(dfd)
+    if konfig:
+        _auto_backup()
 
 
 def save_hal(functions=None, noder=None) -> dict:
@@ -2263,16 +2268,130 @@ def api_lamptest():
     return jsonify({"ok": True})
 
 
+# ---------- backup: påminnelse og automatiske kopier ----------
+# To forskjellige vern:
+#  - PÅMINNELSEN dekker at SD-kortet ryker. Pi-en husker hvilke
+#    versjoner av konfigen siste nedlastede backup inneholdt, og UI-et
+#    viser et banner når noe er lagret etter det. Husket HER og ikke i
+#    nettleseren, så den gjelder uansett hvilken enhet som lastet ned.
+#  - DE AUTOMATISKE KOPIENE dekker en feil lagring. Etter hver
+#    lagring legges hele konfigen i backup-auto/ (de siste
+#    BACKUP_AUTO_ANTALL beholdes). De ligger på samme SD-kort, og
+#    redder derfor ingenting om kortet dør — det er påminnelsens jobb.
+BACKUP_STATUS_FILE = Path(__file__).resolve().parent / "backup-status.json"
+BACKUP_AUTO_DIR = Path(__file__).resolve().parent / "backup-auto"
+BACKUP_AUTO_ANTALL = 20
+_AUTO_NAVN = re.compile(r"nsi63-auto-\d{8}-\d{6}(-utgangspunkt)?\.json")
+
+
+def _backup_bundle() -> dict:
+    return {"type": "nsi63-backup",
+            "hal": load_hal(),
+            "forrigling": load_forrigling(),
+            # Til gjenoppbygging etter Pi-havari: ID-en VISES ved
+            # restore men brukes aldri automatisk — en backup fra
+            # ett anlegg skal ikke døpe om et annet
+            "anlegg": _les_anlegg()}
+
+
+def _konfig_avtrykk() -> dict:
+    """Hva som skiller én konfig fra en annen. HAL og forrigling har
+    egne versjonsstempler; anlegget har ikke, så det hashes."""
+    an = json.dumps(_les_anlegg(), sort_keys=True, ensure_ascii=False)
+    return {"hal": load_hal().get("version", ""),
+            "forrigling": load_forrigling().get("version", ""),
+            "anlegg": hashlib.sha256(an.encode()).hexdigest()[:16]}
+
+
+def _konfig_tom() -> bool:
+    return (not load_hal()["functions"]
+            and not load_forrigling()["togveier"]
+            and not _les_anlegg()["id"])
+
+
+def _noter_backup() -> None:
+    """Konfigen slik den står nå, finnes hos brukeren som fil."""
+    try:
+        _skriv_atomisk(BACKUP_STATUS_FILE, {
+            "tid": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "avtrykk": _konfig_avtrykk()})
+    except OSError:
+        pass                  # påminnelsen er hjelp, ikke en forutsetning
+
+
+def _auto_kopier() -> list:
+    if not BACKUP_AUTO_DIR.is_dir():
+        return []
+    return sorted((p for p in BACKUP_AUTO_DIR.iterdir()
+                   if _AUTO_NAVN.fullmatch(p.name)), key=lambda p: p.name)
+
+
+def _auto_backup(utgangspunkt: bool = False) -> None:
+    """Kopi av hele konfigen etter en lagring.
+
+    Med utgangspunkt=True tas kopien FØR første endring, og bare hvis
+    det ikke finnes noen kopier ennå: ellers ville tilstanden før den
+    aller første lagringen aldri vært tatt vare på.
+
+    Navnet har sekundoppløsning med vilje. En gjenoppretting skriver
+    hal og forrigling rett etter hverandre; kopien etter den første
+    ville blandet ny hal og gammel forrigling, men blir overskrevet av
+    kopien etter den andre i samme sekund.
+
+    Feiler aldri lagringen — den er det viktige."""
+    try:
+        if utgangspunkt and (_auto_kopier() or _konfig_tom()):
+            return
+        BACKUP_AUTO_DIR.mkdir(exist_ok=True)
+        navn = ("nsi63-auto-" + datetime.now().strftime("%Y%m%d-%H%M%S")
+                + ("-utgangspunkt" if utgangspunkt else "") + ".json")
+        mal = BACKUP_AUTO_DIR / navn
+        tmp = mal.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_backup_bundle(), ensure_ascii=False,
+                                  indent=2), encoding="utf-8")
+        tmp.replace(mal)
+        for gml in _auto_kopier()[:-BACKUP_AUTO_ANTALL]:
+            gml.unlink(missing_ok=True)
+    except Exception as e:
+        cache["meldinger"].append(
+            {"tekst": f"automatisk backup feilet: {e}", "ts": time.time()})
+
+
+@app.get("/api/backup-status")
+def api_backup_status():
+    try:
+        st = json.loads(BACKUP_STATUS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        st = None
+    naa = _konfig_avtrykk()
+    if st is None:
+        # Aldri lastet ned: påminn så snart det finnes noe å miste
+        endret, hva = not _konfig_tom(), []
+    else:
+        gml = st.get("avtrykk") or {}
+        hva = [k for k in naa if gml.get(k) != naa[k]]
+        endret = bool(hva)
+    return jsonify({"sist": st.get("tid") if st else None,
+                    "endret": endret, "hva": hva,
+                    "auto": [p.name for p in reversed(_auto_kopier())]})
+
+
+@app.get("/api/backup-auto/<navn>")
+def api_backup_auto(navn):
+    # Bare navn vi selv har laget — ingen stier utenfor mappen
+    if not _AUTO_NAVN.fullmatch(navn) or not (BACKUP_AUTO_DIR / navn).is_file():
+        return jsonify({"error": "ukjent kopi"}), 404
+    # En gammel kopi er IKKE en backup av dagens konfig, så den
+    # nullstiller ikke påminnelsen
+    return send_file(BACKUP_AUTO_DIR / navn, as_attachment=True,
+                     download_name=navn, max_age=0)
+
+
 @app.get("/api/backup")
 def api_backup():
     """Last ned komplett backup: HAL + forriglingstabell i én fil."""
-    bundle = {"type": "nsi63-backup",
-              "hal": load_hal(),
-              "forrigling": load_forrigling(),
-              # Til gjenoppbygging etter Pi-havari: ID-en VISES ved
-              # restore men brukes aldri automatisk — en backup fra
-              # ett anlegg skal ikke døpe om et annet
-              "anlegg": _les_anlegg()}
+    bundle = _backup_bundle()
+    _noter_backup()
     fname = ("nsi63-backup-" +
              datetime.now().strftime("%Y%m%d-%H%M%S") + ".json")
     return Response(
@@ -2409,6 +2528,8 @@ def api_restore():
         n_tv = len(forr["togveier"])
     # Anleggs-ID-en i backupen brukes ALDRI automatisk (den ville døpt
     # om anlegget) — den meldes bare tilbake så UI-et kan opplyse
+    # Brukeren har nettopp gitt oss konfigen som fil — den ER backupen
+    _noter_backup()
     ba = data.get("anlegg")
     ba_id = (ba.get("id") or "") if isinstance(ba, dict) else ""
     return jsonify({"ok": True, "version": hal["version"],
