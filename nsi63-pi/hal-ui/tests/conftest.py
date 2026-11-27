@@ -30,7 +30,7 @@ import pytest
 
 HAL_UI = Path(__file__).resolve().parent.parent
 EKSEMPLER = HAL_UI / "eksempler"
-KONFIGFILER = ("hal.json", "forrigling.json", "anlegg.json")
+KONFIGFILER = ("hal.json", "forrigling.json", "anlegg.json", "instruks.md")
 # Alt app.py serverer fra sin egen mappe, utenom konfigen
 KODEFILER = ("app.py", "panel.html", "mqtt.min.js")
 
@@ -102,7 +102,7 @@ def _lag(tmp_path, monkeypatch, konfig_fra):
         if (HAL_UI / navn).exists():
             shutil.copy(HAL_UI / navn, mappe / navn)
     for font in list(HAL_UI.glob("*.ttf")) + list(HAL_UI.glob("*.otf")) \
-            + list(HAL_UI.glob("*-OFL.txt")):
+            + list(HAL_UI.glob("*-OFL.txt")) + list(HAL_UI.glob("icon*")):
         shutil.copy(font, mappe / font.name)
     shutil.copytree(HAL_UI / "ui", mappe / "ui")
     if konfig_fra is not None:

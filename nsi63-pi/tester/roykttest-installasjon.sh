@@ -113,10 +113,17 @@ sjekk_installasjon() {
     || { galt "HAL-UI svarer ikke"; tail -30 /var/log/nsi63-hal.log >&2 || true; }
 
   steg "Sider"
-  for sti in / /ui/app.js /panel /panel/mqtt.js; do
+  for sti in / /ui/app.js /panel /panel/mqtt.js /panel/manifest.json \
+             /panel/icon.svg /panel/icon-192.png; do
     kode=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$sti")
     [ "$kode" = 200 ] && ok "$sti → 200" || galt "$sti → $kode"
   done
+  # Instruksen er valgfri: 200 når treet har en, ellers 404 (og da
+  # viser panelet ingen Instruks-knapp)
+  forv=404; [ -f /root/nsi63-pi/hal-ui/instruks.md ] && forv=200
+  kode=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/panel/instruks)
+  [ "$kode" = "$forv" ] && ok "/panel/instruks → $kode" \
+    || galt "/panel/instruks → $kode, ventet $forv"
   # Fontene panelet ber om skal finnes; en manglende font faller
   # STILLE tilbake til en annen
   for f in /root/nsi63-pi/hal-ui/*.ttf /root/nsi63-pi/hal-ui/*.otf; do

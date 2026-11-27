@@ -35,14 +35,16 @@ cp -R "$HERE/ui" "$DIR/ui"
 # Stillerapparatet (/panel): samme glob som deploy-pi.sh. Manglet
 # dette, svarte en fersk Pi 404 på /panel til første deploy.
 for f in "$HERE"/panel.html "$HERE"/mqtt.min.js "$HERE"/*.ttf \
-         "$HERE"/*.otf "$HERE"/*-OFL.txt; do
+         "$HERE"/*.otf "$HERE"/*-OFL.txt "$HERE"/icon.svg \
+         "$HERE"/icon-*.png; do
   [ -f "$f" ] && cp "$f" "$DIR/"
 done
 # Konfigen kopieres bare hvis den ikke finnes fra før (ikke overskriv
 # konfig!). Alle tre må med: /panel tegner ingenting før både
 # config/hal og config/forrigling er retained på brokeren, og med bare
 # hal.json ble en fersk Pi stående på «Venter på konfigurasjon».
-for f in hal.json forrigling.json anlegg.json; do
+# instruks.md er anleggets stasjonsinstruks (valgfri, vises på /panel)
+for f in hal.json forrigling.json anlegg.json instruks.md; do
   if [ -f "$HERE/$f" ] && [ ! -f "$DIR/$f" ]; then
     cp "$HERE/$f" "$DIR/"
   fi

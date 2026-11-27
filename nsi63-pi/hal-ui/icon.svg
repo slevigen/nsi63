@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Stillerapparatets ikon: frontplatas grønne flate med én
+       loddrett stiller — spor og rød knott, som på apparatet -->
+  <rect width="192" height="192" rx="36" fill="#2a3222"/>
+  <rect x="84" y="36" width="24" height="120" rx="4" fill="#7c7f83" stroke="#4a4d51" stroke-width="3"/>
+  <circle cx="96" cy="66" r="30" fill="#c9342a" stroke="#33363a" stroke-width="4"/>
+</svg>

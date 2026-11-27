@@ -2173,16 +2173,143 @@ def panel_mqttjs():
 # Stasjonsnavnene bruker samme snitt som skiltene; tyngden kommer fra
 # en strek lagt utenpå i panel.html.
 PANEL_FONTER = {"routed-gothic.ttf", "Nordvester-Regular.ttf"}
+# Ikonene til «Legg til på Hjem-skjerm» (manifestet under, og
+# apple-touch-icon for iOS, som ikke leser SVG)
+PANEL_IKONER = {"icon.svg": "image/svg+xml", "icon-192.png": "image/png"}
+
+
+@app.get("/panel/manifest.json")
+def panel_manifest():
+    """Web-app-manifest for stillerapparatet: lagt til på hjemskjermen
+    åpner det i fullskjerm uten nettleserlinje, som et apparat.
+
+    Ingen service worker med vilje. Panelet skal ALDRI vise noe fra en
+    hurtigbuffer — uten forbindelse skal det vise FRAKOBLET, ikke en
+    gammel tilstand som ser gyldig ut."""
+    a = _les_anlegg()
+    navn = a["navn"] or a["id"] or "NSI63"
+    m = {"name": f"{navn} — stillerapparat",
+         "short_name": navn[:12],
+         "start_url": "/panel",
+         "scope": "/panel",
+         "display": "standalone",
+         "orientation": "landscape",
+         "background_color": "#2a3222",
+         "theme_color": "#2a3222",
+         "icons": [{"src": "/panel/icon.svg", "sizes": "any",
+                    "type": "image/svg+xml"},
+                   {"src": "/panel/icon-192.png", "sizes": "192x192",
+                    "type": "image/png"}]}
+    return Response(json.dumps(m, ensure_ascii=False),
+                    mimetype="application/manifest+json",
+                    headers={"Cache-Control": "no-cache"})
+
+
+# Stasjonsinstruksen, valgfri: ligger instruks.md ved siden av app.py,
+# viser panelet en «Instruks»-knapp. Instruksen er anleggets egen
+# (følger ikke med det offentlige repoet), så fravær er normalt.
+INSTRUKS_FILE = Path(__file__).resolve().parent / "instruks.md"
+
+
+def _md_inline(t: str) -> str:
+    t = (t.replace("&", "&amp;").replace("<", "&lt;")
+          .replace(">", "&gt;"))
+    t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
+    t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"(?<![*\w])\*(?!\s)(.+?)(?<!\s)\*(?![*\w])", r"<i>\1</i>", t)
+    return t
+
+
+def md_til_html(tekst: str) -> str:
+    """Den delen av Markdown en instruks bruker: overskrifter,
+    avsnitt, nummererte og punktlister med innrykkede fortsettelses-
+    linjer, skillelinjer, fet, kursiv og kode. Alt annet blir tekst —
+    HTML i kilden escapes alltid."""
+    ut, avsnitt, liste, punkt = [], [], None, []
+
+    def lukk_avsnitt():
+        if avsnitt:
+            ut.append("<p>" + _md_inline(" ".join(avsnitt)) + "</p>")
+            avsnitt.clear()
+
+    def lukk_punkt():
+        if punkt:
+            ut.append("<li>" + _md_inline(" ".join(punkt)) + "</li>")
+            punkt.clear()
+
+    def lukk_liste():
+        nonlocal liste
+        lukk_punkt()
+        if liste:
+            ut.append(f"</{liste}>")
+            liste = None
+
+    for linje in tekst.splitlines():
+        ren = linje.strip()
+        nr = re.match(r"(\d+)\.\s+(.*)", ren)
+        pk = re.match(r"[-*]\s+(.*)", ren) if not re.fullmatch(r"[-*_]{3,}", ren) else None
+        hd = re.match(r"(#{1,6})\s+(.*)", ren)
+        if not ren:
+            lukk_avsnitt()
+            lukk_punkt()
+        elif re.fullmatch(r"[-*_]{3,}", ren):
+            lukk_avsnitt(); lukk_liste()
+            ut.append("<hr>")
+        elif hd:
+            lukk_avsnitt(); lukk_liste()
+            n = len(hd.group(1))
+            ut.append(f"<h{n}>{_md_inline(hd.group(2))}</h{n}>")
+        elif nr or pk:
+            lukk_avsnitt()
+            typ = "ol" if nr else "ul"
+            if liste != typ:
+                lukk_liste()
+                start = int(nr.group(1)) if nr else 1
+                ut.append(f'<ol start="{start}">' if nr and start != 1
+                          else f"<{typ}>")
+                liste = typ
+            lukk_punkt()
+            punkt.append((nr or pk).group(2) if nr else pk.group(1))
+        elif liste and (linje[:1].isspace() or punkt):
+            punkt.append(ren)            # fortsettelse av punktet
+        else:
+            lukk_liste()
+            avsnitt.append(ren)
+    lukk_avsnitt()
+    lukk_liste()
+    return "\n".join(ut)
+
+
+@app.get("/panel/instruks")
+def panel_instruks():
+    if not INSTRUKS_FILE.is_file():
+        return jsonify({"error": "ingen instruks på denne Pi-en"}), 404
+    tekst = INSTRUKS_FILE.read_text(encoding="utf-8")
+    side = ("<!DOCTYPE html><html lang=\"no\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, "
+            "initial-scale=1\"><title>Instruks</title><style>"
+            ":root{color-scheme:dark}"
+            "body{margin:0;background:#1d2318;color:#d7d9dc;"
+            "font:16px/1.55 -apple-system,\"Segoe UI\",Roboto,sans-serif}"
+            "main{max-width:46em;margin:0 auto;padding:18px 20px 60px}"
+            "h1{font-size:22px}h2{font-size:18px;margin-top:1.6em}"
+            "hr{border:0;border-top:1px solid #3d4636;margin:1.6em 0}"
+            "li{margin:.35em 0}b{color:#fff}"
+            "code{background:#2a3222;padding:0 4px;border-radius:3px}"
+            "</style></head><body><main>" + md_til_html(tekst) +
+            "</main></body></html>")
+    return Response(side, mimetype="text/html",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/panel/<fil>")
 def panel_font(fil):
-    if fil not in PANEL_FONTER:
+    if fil not in PANEL_FONTER and fil not in PANEL_IKONER:
         return jsonify({"error": "ukjent fil"}), 404
     sti = Path(__file__).resolve().parent / fil
     if not sti.exists():
         return jsonify({"error": f"{fil} mangler"}), 404
-    return send_file(sti, max_age=86400)
+    return send_file(sti, max_age=86400, mimetype=PANEL_IKONER.get(fil))
 
 
 @app.get("/api/hendelser")
