@@ -1278,8 +1278,26 @@ def api_pi():
                        .read_bytes().decode().rstrip("\x00"))
     except Exception:
         d["modell"] = None
+    d["hal_ui"] = _les_versjon()
     _pi_cache.update(ts=now, data=d)
     return jsonify(d)
+
+
+# Skrevet av deploy-pi.sh: hvilken commit som kjører her. Mangler den,
+# er koden installert på annen måte (install.sh fjerner den, så et
+# gammelt stempel aldri blir stående over ny kode).
+VERSJON_FILE = Path(__file__).resolve().parent / "versjon.json"
+
+
+def _les_versjon():
+    try:
+        d = json.loads(VERSJON_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict):
+        return None
+    return {k: d.get(k) for k in ("commit", "kort", "gren",
+                                   "ukommittert", "tid")}
 
 
 def _gen_togvei_id(tv, fns, st_map):

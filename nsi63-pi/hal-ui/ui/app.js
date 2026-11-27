@@ -1999,6 +1999,15 @@ async function renderNoder() {
     else ks = `ingen RTC — stilles automatisk fra nettleseren ved behov`;
     html += `<p class="hint">oppetid ` + fmtSek(pi.oppetid_s) +
       ` · klokke ` + (pi.klokke || "?") + ` · ` + ks + `</p>`;
+    // Hvilken kode som kjører (versjon.json fra deploy-pi.sh)
+    const v = pi.hal_ui;
+    html += `<p class="hint">HAL-UI ` + (v
+      ? `<b>${attr(v.kort || "?")}</b> fra ${attr(v.gren || "?")}` +
+        (v.ukommittert
+          ? ` <span class="off" title="Deployet med endringer som ikke var committet — koden finnes ikke i noen commit">+ ukommittert</span>`
+          : ``) +
+        (v.tid ? ` · deployet ` + attr(new Date(v.tid).toLocaleString("nb-NO")) : ``)
+      : `ukjent versjon — installert uten deploy-pi.sh`) + `</p>`;
     if (thrHist.length)
       html += `<p class="hint">siden boot: ` + thrHist.join(", ") +
         ` har forekommet</p>`;

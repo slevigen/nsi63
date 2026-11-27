@@ -26,6 +26,9 @@ if [ -d "$GAMMEL" ]; then
   rm -f /etc/systemd/system/tutela-hal.service
 fi
 cp "$HERE/app.py" "$DIR/"
+# Versjonsstempelet fra deploy-pi.sh gjelder koden som lå her FØR —
+# det skal ikke bli stående og påstå noe om koden som installeres nå.
+rm -f "$DIR/versjon.json"
 # Brukerflaten: HTML, CSS og JS som egne filer
 rm -rf "$DIR/ui"
 cp -R "$HERE/ui" "$DIR/ui"
