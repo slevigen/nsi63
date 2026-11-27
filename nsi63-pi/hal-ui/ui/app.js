@@ -1149,6 +1149,9 @@ function bindingsrader(t, rolle) {
             {navn: "lokalstillerlampe", a: "lokalstillerlampe"}];
   if (isManuell(t))
     return [{navn: "drivutgang", a: "ut-normal", b: "ut-avvik"},
+            {navn: "stillingssensor", a: "sensor-normal",
+             b: "sensor-avvik"},
+            {navn: "kontrollampe", a: "panel-normal", b: "panel-avvik"},
             {navn: "betjening", a: "lokal-normal", b: "lokal-avvik"}];
   if (isSperre(t))
     return [{navn: "drivutgang", a: "ut-paalagt", b: "ut-avlagt"},

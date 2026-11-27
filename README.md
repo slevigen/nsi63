@@ -87,8 +87,9 @@ fra Norsk Signalindustri.
 ## JMRI
 
 Brokeren følger JMRI-standarden på `trains/#` i tillegg til den
-interne flaten `nsi63/#`, så JMRI kan kobles rett på som betjenings-
-og visningsflate.
+interne flaten `nsi63/#`, så JMRI kan kobles rett på som visningsflate
+(master publiserer tilstand dit, men tar ennå ikke imot betjening på
+`trains/#`).
 
 ## Test
 

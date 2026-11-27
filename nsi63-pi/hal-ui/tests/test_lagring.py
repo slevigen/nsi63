@@ -291,3 +291,26 @@ def test_feilet_masterbuffer_gir_ikke_negativ_grense(anlegg):
     _info(anlegg, buf=256)
     feil = anlegg.app._for_stor(anlegg.app.load_hal(), "HAL")
     assert feil and "maks 0" in feil
+
+
+def test_manuellveksel_med_sensorer_og_lamper(fersk):
+    """manuellveksel kan binde drivutgang, stillingssensor, kontrollampe og lokal betjening."""
+    mac = "aa1122334455"
+    fns = [{
+        "id": "V1",
+        "type": "manuellveksel",
+        "bindinger": [
+            {"sted": "ut-normal",     "node": mac, "i2c": "0x40", "port": 0},
+            {"sted": "ut-avvik",      "node": mac, "i2c": "0x40", "port": 1},
+            {"sted": "panel-normal",  "node": mac, "i2c": "0x40", "port": 2},
+            {"sted": "panel-avvik",   "node": mac, "i2c": "0x40", "port": 3},
+            {"sted": "sensor-normal", "node": mac, "i2c": "0x20", "port": 0},
+            {"sted": "sensor-avvik",  "node": mac, "i2c": "0x20", "port": 1},
+            {"sted": "lokal-normal",  "node": mac, "i2c": "0x20", "port": 2},
+            {"sted": "lokal-avvik",   "node": mac, "i2c": "0x20", "port": 3},
+        ],
+    }]
+    r = _lagre_hal(fersk, fns)
+    assert r.status_code == 200, _feil(r)
+    lamper = {besk for _, _, _, besk, _ in fersk.app.lamp_list(fersk.app.load_hal())}
+    assert "V1 (panel-normal)" in lamper and "V1 (panel-avvik)" in lamper
