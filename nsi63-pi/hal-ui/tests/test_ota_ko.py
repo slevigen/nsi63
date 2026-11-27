@@ -203,6 +203,9 @@ def test_ustemplet_firmware_avvises(ota):
 def test_ingen_utdaterte_noder(ota):
     for n in ota.app.cache["nodes"]["nodes"]:
         n["bygget"] = NY
+    st = _status(ota)
+    assert st["kandidater"] == []
+    assert st["fw_finnes"] and st["fw_stempel"] == NY   # UI-et forklarer
     r = _start(ota)
     assert r.status_code == 400 and "ingen" in r.get_json()["error"]
 

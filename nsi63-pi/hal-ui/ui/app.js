@@ -2137,10 +2137,11 @@ async function renderNoder() {
       <p class="hint">Én felles binær for master og noder — rollen
       velges med knappegest på enheten (hold frontknappen 3 s ved
       strømpåslag = master). Bygg med <code>bash bygg-ota.sh</code> og
-      last opp <code>.bin</code>-fila den lager. Oppdatering utløses fra enhetens eget kort:
-      master oppdaterer seg selv (hele anlegget i sikker tilstand
-      ~1 min, selvhelende); noder henter via en kort wifi-oppkobling
-      til AP-et (mørk ~1 min — ta én om gangen). MD5-verifisert mot
+      last opp <code>.bin</code>-fila den lager. Master oppdateres fra
+      sitt eget kort (hele anlegget i sikker tilstand ~1 min,
+      selvhelende); nodene med «Oppdater alle noder» under, én om
+      gangen — hver henter via en kort wifi-oppkobling til AP-et og er
+      mørk ~1 min. MD5-verifisert mot
       passiv partisjon: feiler noe, kjører gammel firmware videre.
       Første OTA-runde krever USB-flash av OTA-støttet firmware.</p>
       <div class="bar" style="margin:8px 0 4px">
@@ -2225,7 +2226,10 @@ async function renderNoder() {
         <button class="mini" onclick="saveAlias('${n.mac}')">Lagre navn</button>
         <button class="mini" onclick="findNode('${n.mac}')">Finn (blink)</button>
         <button class="mini" onclick="forgetNode('${n.mac}')">Fjern node</button>` +
-      (ota[fwFil] && n.online && !ko.kjorer ? `
+      // Noder oppdateres fra OTA-køen. Knappen står bare igjen for
+      // noder UTEN byggestempel (svært gammel firmware): køen kan ikke
+      // se når de er ferdige, og tar dem derfor ikke med.
+      (ota[fwFil] && n.online && !n.bygget && !ko.kjorer ? `
         <button class="mini" onclick="otaStart('${n.mac}')">Oppdater fw</button>`
                             : ``) + `
       </div>` +
@@ -2458,6 +2462,16 @@ function otaKoHtml(ko) {
            <span class="hint">én om gangen, neste når forrige har meldt
            seg tilbake med ny firmware</span>`) +
       `</div>`;
+  } else {
+    // Ingen kandidater: si HVORFOR, så funksjonen ikke er usynlig.
+    // Den vanligste grunnen er at alle allerede er oppdatert.
+    const stp = ko.fw_stempel;
+    h += `<p class="hint">Oppdater alle noder: ` +
+      (!ko.fw_finnes ? `last opp firmware først`
+       : !stp ? `firmwaren mangler byggestempel (bygg med bygg-ota.sh), ` +
+                `så køen kan ikke se hvem som er utdatert`
+       : `alle online noder har ${attr(stp)} — ingenting å oppdatere`) +
+      `</p>`;
   }
   // Siste kjøring (også mens den pågår)
   const rad = (n, tekst, kl) =>

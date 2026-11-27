@@ -1224,7 +1224,10 @@ def _ota_ko_kjor():
 def api_ota_ko():
     st = _ota_stempel()
     return jsonify(dict(ota_ko, kandidater=_ota_ko_utvalg(st) if st else [],
-                        hindring=_ota_ko_hindring()))
+                        hindring=_ota_ko_hindring(),
+                        # Til UI-et når det ikke er noe å oppdatere
+                        fw_finnes=(OTA_DIR / OTA_FILER[0]).exists(),
+                        fw_stempel=st))
 
 
 @app.post("/api/ota/ko")
