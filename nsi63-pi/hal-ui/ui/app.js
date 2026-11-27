@@ -416,11 +416,12 @@ function decorateRow(tr) {
   } else if (t === "bryter") {
     const cur = tr.dataset.rolle || "";
     extraCell.innerHTML =
-      `<select class="f-rolle" title="signalstopp: alle signaler i stopp og sperret mens bryteren står på. Frigivning: frigir sentralstilte veksler i enden for lokal omlegging (togveier over dem avvises, vekselfelt-vernet er ute av funksjon). Panel-bindingen er kontrollampen — tent når funksjonen er aktiv.">` +
+      `<select class="f-rolle" title="signalstopp: alle signaler i stopp og sperret mens bryteren står på. Frigivning: frigir sentralstilte veksler i enden for lokal omlegging (togveier over dem avvises, vekselfelt-vernet er ute av funksjon). Gjennomgangsdrift: låser stasjonen i normal for en ubetjent mellomstasjon; tog som melder seg på varselfeltet får signal gjennom hovedsporet (hvit stiller på /panel). Panel-bindingen er kontrollampen — tent når funksjonen er aktiv (gjennomgang: blink mens den venter på vilkårene).">` +
       opt("", "rolle: —", cur) +
       opt("signalstopp", "signalstopp", cur) +
       opt("lok-v", "frigivning venstre ende", cur) +
       opt("lok-h", "frigivning høyre ende", cur) +
+      opt("gjennomgang", "gjennomgangsdrift", cur) +
       `</select>`;
   } else if (isNoenVeksel(t)) {
     // «ende» gjelder BARE den sentralstilte: den utledes av

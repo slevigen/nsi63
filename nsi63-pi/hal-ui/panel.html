@@ -944,6 +944,11 @@ function bsDytt(slag, id, retn) {
     // Frigiverstiller (blå): «Frigivingen skjer ved at stilleren
     // legges 45° ned» (ORV 3.3.9).
     pub(`${slag}/${id}/set`, opp ? "sperr" : "frigi");
+  } else if (slag === "gg") {
+    bsProv(slag, id, !opp);
+    // Gjennomgangsdrift (hvit): legges 45° ned for på, rett ut for av.
+    // En bryter TIL ved siden av en eventuell fysisk, som signalstoppen.
+    pub("gjennomgang/set", opp ? "av" : "paa");
   } else if (slag === "lok") {
     bsProv(slag, id, !opp);
     // Lok-frigivning (gul): «Frigiving skjer ved at stillerne legges
@@ -2084,6 +2089,11 @@ function byggPlan(fns) {
   }
   const laaser = fns.filter(f => f.type === "samlelaas");
   const rigler = fns.filter(f => f.type === "rigel");
+  // Gjennomgangsdrift: stilleren står på apparatet bare når anlegget
+  // HAR funksjonen (en bryter med rollen «gjennomgang» i HAL-en) —
+  // panelet fabrikkerer ikke betjening som ikke finnes
+  const ggBryter = fns.find(f => f.type === "bryter" &&
+                                 f.rolle === "gjennomgang");
   let losX = 8;
   for (const l of rigler) {
     const sp = (l.omfatter || []).find(o => sperrePos[o]);
@@ -2368,6 +2378,11 @@ function byggPlan(fns) {
   // av noe — den ER oppstillingen, og listen her er kilden.
   const bsSide = side => {
     const ut = [];
+    // HVIT stiller for gjennomgangsdrift (ORV 3.3: rett ut = av, 45°
+    // ned = på), innerst på venstre side, med hvit kontrollampe over
+    if (ggBryter && side === "v")
+      ut.push({ slag: "gg", id: "gg", farge: "#ecebe4",
+                navn: ggBryter.navn || "Gjennomg.", lampe: "#ffffff" });
     for (const l of laaser)
       if (bsLaasSide(l) === side)
         ut.push({ slag: "samlelaas", id: l.id, farge: "#2b6fc2",
@@ -2457,6 +2472,10 @@ function byggPlan(fns) {
       `</g>`;
   };
   const bsTegn = (it, cx) => {
+    if (it.lampe)
+      s += `<circle id="bs-la-${it.slag}" class="pl" ` +
+        `style="${lampeStil(it.lampe)}" cx="${cx}" ` +
+        `cy="${bsCy - BSUTSLAG - BSKNOTT - 14}" r="6"/>`;
     s += `<g class="bs">` +
       // Vekselstilleren har ETT skilt per stilling: litra over «−»
       // for avvik øverst, litra over «+» for normal nederst — samme
@@ -2710,6 +2729,12 @@ function byggPlan(fns) {
     // vi tilbake på frigivningen, som før.
     bsSett("lok", "v", !!(o.stiller_v !== undefined ? o.stiller_v : o.venstre));
     bsSett("lok", "h", !!(o.stiller_h !== undefined ? o.stiller_h : o.hoyre));
+  });
+  // Gjennomgangsdrift: stilleren ligger nede når den er på (venter
+  // eller aktiv); lampen blinker mens den venter, fast når aktiv
+  planBind("master/gjennomgang", v => {
+    bsSett("gg", "gg", v === "venter" || v === "aktiv");
+    plSet("bs-la-gg", v === "aktiv" ? "pa" : v === "venter" ? "blink" : "av");
   });
   const bsStoppLampe = () =>
     plSet("bs-la-stopp",

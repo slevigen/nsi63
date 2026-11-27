@@ -265,6 +265,7 @@ lock = threading.Lock()
 cache = {"nodes": None, "master_ack": None, "inputs": {},
          # Masterens egen tilstandsflate (retained) — se on_connect
          "jord": None, "signalstopp": None, "testmodus": None,
+         "gjennomgang": None,
          "frigivning": None,
          "master_info": None, "master_status": None, "conflict": None,
          "forrigling_ack": None, "anlegg_ack": None, "meldinger": [],
@@ -384,7 +385,8 @@ def on_message(client, userdata, msg):
         cache["lampeprove_ack"] = {"svar": text, "ts": time.time()}
         return
     if msg.topic in (ROT + "master/jord", ROT + "master/signalstopp",
-                     ROT + "master/testmodus"):          # ren tekst
+                     ROT + "master/testmodus",
+                     ROT + "master/gjennomgang"):        # ren tekst
         cache[msg.topic.rsplit("/", 1)[1]] = text
         cache["master_hort_ts"] = time.time()
         return
@@ -734,6 +736,8 @@ def api_master():
         # som tilfeldigvis står i Pi-ens anlegg.json
         "jord": cache.get("jord"),
         "signalstopp": cache.get("signalstopp"),
+        # Gjennomgangsdrift: av / venter / aktiv
+        "gjennomgang": cache.get("gjennomgang"),
         "testmodus": cache.get("testmodus"),
         "frigivning": cache.get("frigivning"),
     })

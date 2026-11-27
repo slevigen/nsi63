@@ -75,3 +75,12 @@ def test_versjon_vises_bare_med_stempel(fersk):
     v = fersk.klient.get("/api/pi").get_json()["hal_ui"]
     assert v["kort"] == "aaaaaaa" and v["ukommittert"] is False
     assert "annet" not in v
+
+
+def test_gjennomgangsdrift_fra_master_vises_i_api(fersk):
+    class Msg:
+        topic = "nsi63/master/gjennomgang"
+        payload = b"venter"
+        retain = True
+    fersk.app.on_message(None, None, Msg())
+    assert fersk.klient.get("/api/master").get_json()["gjennomgang"] == "venter"

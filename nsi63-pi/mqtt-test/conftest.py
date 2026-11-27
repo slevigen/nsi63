@@ -277,6 +277,9 @@ class Anlegg:
 
     def rydd(self, topo):
         """Nullstill anlegget: simene av, alle togveier løses ut."""
+        # Gjennomgangsdrift av FØRST: den sperrer stillere, veksler og
+        # låser, og resten av ryddingen trenger dem
+        self.pub("gjennomgang/set", "av")
         self.pub("signalstopp/sim", "auto")
         self.pub("frigivning/v/sim", "auto")
         self.pub("frigivning/h/sim", "auto")
