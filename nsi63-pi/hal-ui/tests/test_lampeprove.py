@@ -18,7 +18,7 @@ def test_avbrutt_naar_master_ikke_bekrefter_pausen(fersk, monkeypatch):
     monkeypatch.setattr(app, "lamp_list", lambda hal: [
         ("aa0000000001", "0x40", 0, "test", False)])
     klokke = [0.0]
-    monkeypatch.setattr(app.time, "time", lambda: klokke[0])
+    monkeypatch.setattr(app.time, "monotonic", lambda: klokke[0])
     monkeypatch.setattr(app.time, "sleep",
                         lambda s: klokke.__setitem__(0, klokke[0] + s))
     app.lamptest.update(running=True, traad=True)

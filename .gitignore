@@ -11,6 +11,7 @@ nsi63-pi/hal-ui/hendelser.aktiv
 nsi63-pi/hal-ui/ota/
 
 # Lokalt rusk
+nsi63-pi/hal-ui/frontend/node_modules/
 __pycache__/
 .pytest_cache/
 .DS_Store

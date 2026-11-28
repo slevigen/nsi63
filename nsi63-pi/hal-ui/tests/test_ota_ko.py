@@ -29,7 +29,7 @@ def ota(fersk, monkeypatch):
     a.OTA_DIR.mkdir()
     (a.OTA_DIR / "nsi63-atoms3.bin").write_bytes(b"\xe9" + bytes(300_000))
     (a.OTA_DIR / "nsi63-atoms3.bin.stempel").write_text(NY)
-    a.cache["master_hort_ts"] = time.time()
+    a.cache["master_hort_ts"] = time.monotonic()
     a.cache["nodes"] = {"nodes": [
         {"mac": "cc0000000003", "online": 1, "bygget": GML},
         {"mac": "aa0000000001", "online": 1, "bygget": GML},
@@ -96,6 +96,16 @@ def test_utvalg_sorteres_paa_kallenavn(ota):
     k = _status(ota)["kandidater"]
     assert [x["mac"] for x in k][0] == "aa0000000001"   # «aa0…» < «aaa»
     assert {x["mac"]: x["alias"] for x in k}["cc0000000003"] == "AAA"
+
+
+def test_utvalg_ignorerer_navnlos_driver_node_som_alias(ota):
+    """Når et kallenavn fjernes blir driver-lista liggende under MAC-en selv
+    (hal['noder'][mac] = {'mac': mac, 'driver': [...]}). Det skal ikke vises
+    som et kallenavn i OTA-køen."""
+    mac = "aa0000000001"
+    ota.app.save_hal(noder={mac: {"mac": mac, "driver": ["0x40"]}})
+    k = {x["mac"]: x["alias"] for x in _status(ota)["kandidater"]}
+    assert k[mac] == ""
 
 
 # ---------- kjøringen ----------
@@ -182,7 +192,7 @@ def test_stopp_uten_ko(ota):
 # ---------- startvernene ----------
 
 def test_stille_master_avvises(ota):
-    ota.app.cache["master_hort_ts"] = time.time() - 40
+    ota.app.cache["master_hort_ts"] = time.monotonic() - 40
     r = _start(ota)
     assert r.status_code == 400 and "master" in r.get_json()["error"]
     assert not _ota_cmd(ota)

@@ -1,0 +1,483 @@
+{
+  "version": "2026-08-22 15:57:02",
+  "updated": "2026-08-22T13:57:02+00:00",
+  "functions": [
+    {
+      "id": "A",
+      "type": "forsignal2",
+      "bindinger": [],
+      "varsler_om": "A"
+    },
+    {
+      "id": "A",
+      "type": "hovedsignal3",
+      "bindinger": [
+        {
+          "sted": "anlegg",
+          "node": "SEKSJON1",
+          "i2c": "0x40",
+          "port": 0
+        }
+      ],
+      "rolle": "innkjor",
+      "linjefelt": "A"
+    },
+    {
+      "id": "B",
+      "type": "forsignal2",
+      "bindinger": [],
+      "varsler_om": "B"
+    },
+    {
+      "id": "B",
+      "type": "hovedsignal3",
+      "bindinger": [],
+      "rolle": "innkjor",
+      "linjefelt": "B"
+    },
+    {
+      "id": "L",
+      "type": "forsignal2",
+      "bindinger": [
+        {
+          "sted": "anlegg",
+          "node": "SEKSJON1",
+          "i2c": "gpio",
+          "port": 0
+        }
+      ],
+      "montert_med": "A",
+      "varsler_om": "L"
+    },
+    {
+      "id": "L",
+      "type": "hovedsignal3",
+      "bindinger": [],
+      "rolle": "utkjor",
+      "linjefelt": "B"
+    },
+    {
+      "id": "M",
+      "type": "forsignal2",
+      "bindinger": [],
+      "montert_med": "B",
+      "varsler_om": "M"
+    },
+    {
+      "id": "M",
+      "type": "hovedsignal3",
+      "bindinger": [],
+      "rolle": "utkjor",
+      "linjefelt": "A"
+    },
+    {
+      "id": "ZL",
+      "type": "skiftesignal2",
+      "bindinger": [],
+      "montert_med": "L",
+      "skift_sporveksler": [
+        "2"
+      ]
+    },
+    {
+      "id": "ZM",
+      "type": "skiftesignal2",
+      "bindinger": [],
+      "montert_med": "M",
+      "skift_sporveksler": [
+        "1"
+      ]
+    },
+    {
+      "id": "1",
+      "type": "sporveksel",
+      "bindinger": [],
+      "side": "h",
+      "spiss": "h",
+      "minus_til": "veksel 5"
+    },
+    {
+      "id": "2",
+      "type": "sporveksel",
+      "bindinger": [],
+      "side": "v",
+      "spiss": "v",
+      "minus_til": "veksel 4"
+    },
+    {
+      "id": "3",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "h",
+      "pluss_til": "01",
+      "minus_til": "veksel 7"
+    },
+    {
+      "id": "4",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "v",
+      "pluss_til": "02",
+      "minus_til": "veksel 11"
+    },
+    {
+      "id": "5",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "h",
+      "pluss_til": "02",
+      "minus_til": "veksel 9"
+    },
+    {
+      "id": "7",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "h",
+      "pluss_til": "4",
+      "minus_til": "5",
+      "spiss_til": "veksel 3",
+      "avvik_ben": "pluss"
+    },
+    {
+      "id": "9",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "h",
+      "pluss_til": "3",
+      "minus_til": "7",
+      "spiss_til": "veksel 5"
+    },
+    {
+      "id": "11",
+      "type": "manuellveksel",
+      "bindinger": [],
+      "spiss": "v",
+      "pluss_til": "6",
+      "minus_til": "3",
+      "avvik_ben": "spiss"
+    },
+    {
+      "id": "SpII",
+      "type": "sporsperre",
+      "bindinger": [],
+      "ligger_i": "veksel 3"
+    },
+    {
+      "id": "SpIII",
+      "type": "sporsperre",
+      "bindinger": [],
+      "ligger_i": "veksel 5"
+    },
+    {
+      "id": "01",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "togspor"
+    },
+    {
+      "id": "1",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": ""
+    },
+    {
+      "id": "02",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "togspor"
+    },
+    {
+      "id": "2",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": ""
+    },
+    {
+      "id": "3",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "spor"
+    },
+    {
+      "id": "4",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "spor"
+    },
+    {
+      "id": "5",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "spor"
+    },
+    {
+      "id": "6",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "spor"
+    },
+    {
+      "id": "7",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "spor"
+    },
+    {
+      "id": "a",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "varselfelt",
+      "linjefelt": "A"
+    },
+    {
+      "id": "A",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "linjefelt",
+      "side": "h",
+      "linjeblokk": false
+    },
+    {
+      "id": "b",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "varselfelt",
+      "linjefelt": "B"
+    },
+    {
+      "id": "B",
+      "type": "sporfelt",
+      "bindinger": [],
+      "rolle": "linjefelt",
+      "side": "v",
+      "linjeblokk": false
+    },
+    {
+      "id": "Jord",
+      "type": "trykknapp",
+      "bindinger": [],
+      "rolle": "jord"
+    },
+    {
+      "id": "Lok1",
+      "type": "bryter",
+      "bindinger": [],
+      "rolle": "lok-h"
+    },
+    {
+      "id": "Lok2",
+      "type": "bryter",
+      "bindinger": [],
+      "rolle": "lok-v"
+    },
+    {
+      "id": "Sst",
+      "type": "bryter",
+      "bindinger": [],
+      "rolle": "signalstopp"
+    },
+    {
+      "id": "KL",
+      "type": "klokke",
+      "bindinger": [
+        {
+          "sted": "anlegg",
+          "node": "STILLERAPPARAT",
+          "i2c": "gpio",
+          "port": 0
+        }
+      ],
+      "hakk_hz": 50,
+      "hakk_duty": 50
+    },
+    {
+      "id": "RI1",
+      "type": "rigel",
+      "bindinger": [],
+      "omfatter": [
+        "3",
+        "SpII"
+      ],
+      "navn": "Ri. Sp.II/3"
+    },
+    {
+      "id": "RI2",
+      "type": "rigel",
+      "bindinger": [],
+      "omfatter": [
+        "5",
+        "SpIII"
+      ],
+      "navn": "Ri. Sp.III/5"
+    },
+    {
+      "id": "S1",
+      "type": "samlelaas",
+      "bindinger": [],
+      "omfatter": [
+        "4",
+        "11"
+      ],
+      "navn": "S.LÅS I"
+    }
+  ],
+  "signaltyper": {
+    "hovedsignal3": {
+      "lamper": 3,
+      "normalbilde": "stopp",
+      "bilder": {
+        "stopp-blink": [
+          "av",
+          "blink",
+          "av"
+        ],
+        "stopp": [
+          "av",
+          "pa",
+          "av"
+        ],
+        "kjor-redusert": [
+          "pa",
+          "av",
+          "av"
+        ],
+        "kjor": [
+          "pa",
+          "av",
+          "pa"
+        ]
+      },
+      "signalnr": {
+        "stopp-blink": "20A",
+        "stopp": "20B",
+        "kjor-redusert": "21",
+        "kjor": "22"
+      },
+      "klasse": "hovedsignal"
+    },
+    "forsignal2": {
+      "lamper": 2,
+      "normalbilde": "forvent-stopp",
+      "bilder": {
+        "forvent-stopp": [
+          "blink",
+          "av"
+        ],
+        "forvent-kjor-redusert": [
+          "blink",
+          "blink"
+        ],
+        "forvent-kjor": [
+          "av",
+          "blink"
+        ],
+        "slukket": [
+          "av",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "forvent-stopp": "23",
+        "forvent-kjor-redusert": "24",
+        "forvent-kjor": "25"
+      },
+      "folger": {
+        "stopp": "forvent-stopp",
+        "stopp-blink": "forvent-stopp",
+        "kjor": "forvent-kjor",
+        "kjor-redusert": "forvent-kjor-redusert"
+      },
+      "klasse": "forsignal"
+    },
+    "skiftesignal1": {
+      "lamper": 1,
+      "normalbilde": "slukket",
+      "bilder": {
+        "skifting-tillatt": [
+          "pa"
+        ],
+        "slukket": [
+          "av"
+        ]
+      },
+      "klasse": "skiftesignal"
+    },
+    "hovedsignal2": {
+      "lamper": 2,
+      "normalbilde": "stopp",
+      "bilder": {
+        "stopp": [
+          "av",
+          "pa"
+        ],
+        "kjor-redusert": [
+          "pa",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "stopp": "20B",
+        "kjor-redusert": "21"
+      },
+      "klasse": "hovedsignal"
+    },
+    "dvergsignal3": {
+      "klasse": "dvergsignal",
+      "lamper": 3,
+      "normalbilde": "kjoring-forbudt",
+      "bilder": {
+        "kjoring-forbudt": [
+          "av",
+          "pa",
+          "pa"
+        ],
+        "varsom-kjoring": [
+          "pa",
+          "av",
+          "pa"
+        ],
+        "kjoring-tillatt": [
+          "pa",
+          "pa",
+          "av"
+        ],
+        "frigitt-lokal": [
+          "av",
+          "blink",
+          "pa"
+        ]
+      }
+    },
+    "skiftesignal2": {
+      "klasse": "skiftesignal",
+      "lamper": 2,
+      "normalbilde": "slukket",
+      "bilder": {
+        "skifting-forbudt": [
+          "av",
+          "pa"
+        ],
+        "skifting-tillatt": [
+          "pa",
+          "av"
+        ],
+        "slukket": [
+          "av",
+          "av"
+        ]
+      },
+      "signalnr": {
+        "skifting-forbudt": "41",
+        "skifting-tillatt": "42"
+      }
+    }
+  },
+  "noder": {
+    "SEKSJON1": {
+      "mac": "e8f60a980c24"
+    },
+    "STILLERAPPARAT": {
+      "mac": "aca704003910"
+    }
+  }
+}

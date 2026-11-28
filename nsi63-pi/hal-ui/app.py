@@ -25,6 +25,7 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -293,6 +294,114 @@ cache = {"nodes": None, "master_ack": None, "inputs": {},
          # Still/Riv i UI-et kan vise masterens begrunnelse direkte
          "togvei_info": {}}
 
+_ota_ko_lock = threading.Lock()
+_lt_lock = threading.Lock()
+
+# ---------- SSE (sanntidsstrøm til HAL-UI) ----------
+# Hver åpen /api/events-klient får sin egen avgrensede kø. En full kø
+# (treg eller hengende klient) lukkes og meldes av uten å blokkere
+# MQTT-tråden — nettleseren kobler da til på nytt og får ferskt snapshot.
+# SSE_TICK_S er modulkonstant så testene kan sette den ned.
+SSE_TICK_S = 10.0
+
+
+def _sse_ramme(hendelse: str, data) -> str:
+    tekst = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"event: {hendelse}\ndata: {tekst}\n\n"
+
+
+class _SseKlient:
+    __slots__ = ("q", "lukket")
+
+    def __init__(self, maks: int = 200):
+        self.q: queue.Queue = queue.Queue(maxsize=maks)
+        self.lukket = threading.Event()
+
+    def lukk(self) -> None:
+        self.lukket.set()
+        while True:
+            try:
+                self.q.get_nowait()
+            except queue.Empty:
+                break
+        try:
+            self.q.put_nowait(None)
+        except queue.Full:
+            pass
+
+
+class _SseHub:
+    def __init__(self, maks_ko: int = 200):
+        self._lock = threading.Lock()
+        self._klienter: set[_SseKlient] = set()
+        self._maks_ko = maks_ko
+
+    def abonner(self) -> _SseKlient:
+        k = _SseKlient(self._maks_ko)
+        with self._lock:
+            self._klienter.add(k)
+        return k
+
+    def avmeld(self, k: _SseKlient) -> None:
+        with self._lock:
+            self._klienter.discard(k)
+        k.lukk()
+
+    def antall(self) -> int:
+        with self._lock:
+            return len(self._klienter)
+
+    def send(self, hendelse: str, data) -> None:
+        with self._lock:
+            if not self._klienter:
+                return
+            ramme = _sse_ramme(hendelse, data)
+            fulle = []
+            for k in list(self._klienter):
+                if k.lukket.is_set():
+                    fulle.append(k)
+                    continue
+                try:
+                    k.q.put_nowait(ramme)
+                except queue.Full:
+                    fulle.append(k)
+            for k in fulle:
+                self._klienter.discard(k)
+        for k in fulle:
+            k.lukk()
+
+    def avslutt(self) -> None:
+        with self._lock:
+            klienter = list(self._klienter)
+            self._klienter.clear()
+        for k in klienter:
+            k.lukk()
+
+
+sse = _SseHub()
+_sse_feil_meldt: set[str] = set()
+
+
+def _sse_send_trygt(hendelse: str, data_eller_fn) -> None:
+    """Send SSE-hendelse bare når noen faktisk lytter, og la aldri en
+    feil i payload-byggingen velte paho-nettverkstråden eller jobber."""
+    if not sse.antall():
+        return
+    try:
+        data = data_eller_fn() if callable(data_eller_fn) else data_eller_fn
+        sse.send(hendelse, data)
+    except Exception as e:
+        if hendelse not in _sse_feil_meldt:
+            _sse_feil_meldt.add(hendelse)
+            print(f"[sse] feil ved {hendelse}: {e}", flush=True)
+
+
+def _legg_til_melding(tekst: str) -> None:
+    cache["meldinger"].append(
+        {"tekst": tekst, "mono": time.monotonic(), "ts": time.time()})
+    del cache["meldinger"][:-8]
+    _sse_send_trygt("master", _master_payload)
+
 
 # ---------- MQTT ----------
 
@@ -323,18 +432,18 @@ def hevd_konfig() -> None:
     flash og klarer seg uten oss, men retained skal likevel stemme.
     """
     try:
-        hal = load_hal()
-        if hal["functions"] or hal["version"]:
-            publish_config(hal)
-        fr = load_forrigling()
-        if fr["togveier"] or fr["version"]:
-            publish_forrigling(fr)
-        mq.publish(ANLEGG_TOPIC,
-                   json.dumps(_les_anlegg(), ensure_ascii=False),
-                   retain=True)
+        with lock:
+            hal = load_hal()
+            if hal["functions"] or hal["version"]:
+                publish_config(hal)
+            fr = load_forrigling()
+            if fr["togveier"] or fr["version"]:
+                publish_forrigling(fr)
+            mq.publish(ANLEGG_TOPIC,
+                       json.dumps(_les_anlegg(), ensure_ascii=False),
+                       retain=True)
     except Exception as e:            # aldri velt nettverkstråden
-        cache["meldinger"].append(
-            {"tekst": f"kunne ikke re-hevde konfig: {e}", "ts": time.time()})
+        _legg_til_melding(f"kunne ikke re-hevde konfig: {e}")
 
 
 # ---------- hendelseslogg («svart boks») ----------
@@ -386,6 +495,7 @@ def hendelse_logg(tema: str, tekst: str, retained: bool) -> None:
                     HENDELSE_FIL.with_suffix(".jsonl.gammel"))
         except OSError:
             pass   # full disk o.l. skal aldri velte nettverkstråden
+    _sse_send_trygt("hendelse", rad)
 
 
 def on_message(client, userdata, msg):
@@ -395,14 +505,14 @@ def on_message(client, userdata, msg):
     hendelse_logg(tema_kort, text, bool(msg.retain))
     if msg.topic == MASTER_STATUS_TOPIC:      # ren tekst: online/offline
         cache["master_status"] = text
-        cache["master_status_ts"] = time.time()
+        cache["master_status_ts"] = time.monotonic()
+        _sse_send_trygt("master", _master_payload)
         return
     if msg.topic == MELDING_TOPIC:            # ren tekst: driftsadvarsel
-        cache["meldinger"].append({"tekst": text, "ts": time.time()})
-        del cache["meldinger"][:-8]           # behold de 8 siste
+        _legg_til_melding(text)
         return
     if msg.topic == ROT + "master/lampeprove/ack":   # ren tekst
-        cache["lampeprove_ack"] = {"svar": text, "ts": time.time()}
+        cache["lampeprove_ack"] = {"svar": text, "mono": time.monotonic()}
         return
     # «Hørt fra master» krever en FERSK melding. Retained ligger igjen
     # hos brokeren etter at master døde, og kom alltid ved oppkobling —
@@ -414,16 +524,18 @@ def on_message(client, userdata, msg):
                      ROT + "master/gjennomgang"):        # ren tekst
         cache[msg.topic.rsplit("/", 1)[1]] = text
         if fersk:
-            cache["master_hort_ts"] = time.time()
+            cache["master_hort_ts"] = time.monotonic()
+        _sse_send_trygt("master", _master_payload)
         return
     # nsi63/togvei/<id>/info — masterens svar på betjening (ren tekst)
     if msg.topic.startswith(ROT + "togvei/") and msg.topic.endswith("/info"):
         tid = msg.topic[len(ROT + "togvei/"):-len("/info")]
         ti = cache["togvei_info"]
-        ti[tid] = {"tekst": text, "ts": time.time()}
+        ti[tid] = {"tekst": text, "mono": time.monotonic()}
         if len(ti) > 32:                      # aldri voks fritt
             for k in list(ti)[:len(ti) - 32]:
                 del ti[k]
+        _sse_send_trygt("togvei_info", {"id": tid, "tekst": text, "alder_s": 0})
         return
     try:
         payload = json.loads(text)
@@ -432,27 +544,38 @@ def on_message(client, userdata, msg):
     if msg.topic == NODES_TOPIC:
         cache["nodes"] = payload
         if fersk:
-            cache["master_hort_ts"] = time.time()
+            cache["master_hort_ts"] = time.monotonic()
+        _sse_send_trygt("nodes", payload)
+        _sse_send_trygt("master", _master_payload)
+        _sse_send_trygt("ota_ko", _ota_ko_payload)
     elif msg.topic == MASTER_ACK_TOPIC:
         cache["master_ack"] = payload
+        _sse_send_trygt("ack", {"type": "hal", "data": payload})
     elif msg.topic == MASTER_INFO_TOPIC:
         cache["master_info"] = payload
         if fersk:
-            cache["master_hort_ts"] = time.time()
+            cache["master_hort_ts"] = time.monotonic()
+        _sse_send_trygt("master", _master_payload)
     elif msg.topic == CONFLICT_TOPIC:
-        cache["conflict"] = {"data": payload, "ts": time.time()}
+        cache["conflict"] = {"data": payload, "mono": time.monotonic()}
+        _sse_send_trygt("master", _master_payload)
     elif msg.topic == FORRIGLING_ACK_TOPIC:
         cache["forrigling_ack"] = payload
+        _sse_send_trygt("ack", {"type": "forrigling", "data": payload})
     elif msg.topic == ANLEGG_ACK_TOPIC:
         cache["anlegg_ack"] = payload
+        _sse_send_trygt("ack", {"type": "anlegg", "data": payload})
     elif msg.topic == ROT + "master/frigivning":
         cache["frigivning"] = payload
+        _sse_send_trygt("master", _master_payload)
     else:
         # nsi63/espnow/<mac>/in/<addr-hex> -> {"i2c":"0x20","value":n}
         parts = msg.topic.split("/")
-        if len(parts) == 5 and parts[3] == "in":
+        if len(parts) == 5 and parts[3] == "in" and isinstance(payload, dict):
             inn = cache["inputs"]
-            inn[f"{parts[2]}/0x{parts[4]}"] = payload.get("value")
+            key = f"{parts[2]}/0x{parts[4]}"
+            val = payload.get("value")
+            inn[key] = val
             # Taket speiler masterens inCache: flere kilder enn den kan
             # holde er uansett ikke i drift. Uten det vokser dicten for
             # hver node som noen gang har meldt en inngang — også de
@@ -460,6 +583,7 @@ def on_message(client, userdata, msg):
             if len(inn) > 64:
                 for k in list(inn)[:len(inn) - 64]:
                     del inn[k]
+            _sse_send_trygt("input", {"k": key, "v": val})
 
 
 # paho-mqtt 2.x krever eksplisitt callback-API-versjon; 1.x (eldre
@@ -686,6 +810,8 @@ def save_hal(functions=None, noder=None) -> dict:
         # slik: A skriver v1, B skriver v2, B publiserer, A publiserer —
         # og da står v2 på disk mens masteren kjører v1, permanent.
         publish_config(data)
+    _sse_send_trygt("backup", _backup_status_payload)
+    _sse_send_trygt("konfig_endret", {"hva": "hal", "version": data["version"]})
     return data
 
 
@@ -741,25 +867,31 @@ def api_inputs():
     return jsonify(dict(cache["inputs"]))
 
 
-@app.get("/api/master")
-def api_master():
+def _master_payload() -> dict:
+    now = time.monotonic()
     c = cache["conflict"]
-    fresh = c if c and time.time() - c["ts"] < 60 else None
-    now = time.time()
+    fresh = c if c and now - c["mono"] < 60 else None
     hort = cache.get("master_hort_ts")
-    return jsonify({
-        "mac": (cache["nodes"] or {}).get("master"),
+    meldinger = []
+    for m in list(cache["meldinger"]):
+        mono = m.get("mono")
+        alder = max(0, round(now - mono)) if mono is not None else 0
+        if alder < 3600:
+            meldinger.append({"tekst": m["tekst"], "ts": m.get("ts"),
+                              "alder_s": alder})
+    nodes = cache["nodes"]
+    return {
+        "mac": nodes.get("master") if isinstance(nodes, dict) else None,
         "status": cache["master_status"],
         # sekunder siden siste LIVSTEGN (info/roster, sendes hvert 10. s)
         # — retained «online» skal aldri tros på alene: den overlever
         # både broker-omstart (LWT-en dør med forbindelsen sin) og
         # denne prosessens egen cache
-        "sist_hort_s": (round(time.time() - hort) if hort else None),
+        "sist_hort_s": (max(0, round(now - hort)) if hort is not None else None),
         "info": cache["master_info"],
         "conflict": fresh["data"] if fresh else None,
         # driftsadvarsler siste time (fw-avvik, full inngangscache, ...)
-        "meldinger": [m for m in list(cache["meldinger"])
-                      if now - m["ts"] < 3600],
+        "meldinger": meldinger,
         # Masterens EGEN tilstand — det er denne som gjelder, ikke det
         # som tilfeldigvis står i Pi-ens anlegg.json
         "jord": cache.get("jord"),
@@ -768,7 +900,12 @@ def api_master():
         "gjennomgang": cache.get("gjennomgang"),
         "testmodus": cache.get("testmodus"),
         "frigivning": cache.get("frigivning"),
-    })
+    }
+
+
+@app.get("/api/master")
+def api_master():
+    return jsonify(_master_payload())
 
 
 # ---------- anleggs-ID ----------
@@ -1058,6 +1195,8 @@ def api_anlegg_save():
         # masteren finner den retained når den kobler seg på det nye nettet
         mq.publish(ANLEGG_TOPIC, json.dumps(d, ensure_ascii=False),
                    retain=True)             # publisert under samme lås
+    _sse_send_trygt("backup", _backup_status_payload)
+    _sse_send_trygt("konfig_endret", {"hva": "anlegg"})
     ut = _oppdater_ap_og_hostname(aid)
     return jsonify({"ok": True, **d, **ut})
 
@@ -1093,8 +1232,7 @@ def ota_fil(navn):
                      else "application/octet-stream")
 
 
-@app.get("/api/ota")
-def api_ota():
+def _ota_payload() -> dict:
     ut = {}
     for fn in OTA_FILER:
         sti = OTA_DIR / fn
@@ -1105,7 +1243,12 @@ def api_ota():
                    "stempel": sc.read_text().strip() if sc.exists() else "",
                    "tid": sti.stat().st_mtime}
                   if sti.exists() else None)
-    return jsonify(ut)
+    return ut
+
+
+@app.get("/api/ota")
+def api_ota():
+    return jsonify(_ota_payload())
 
 
 def _ota_valider(data: bytes, navn: str):
@@ -1143,7 +1286,8 @@ def api_ota_firmware():
     # kunne spise minnet på Pi-en før valideringen rekker å avvise
     # den. (Erstatter zip-bombe-vernet på deklarert utpakket
     # størrelse, som forsvant med pakken.)
-    if request.content_length and request.content_length > 8 * 1024 * 1024:
+    maks_ota = 8 * 1024 * 1024
+    if request.content_length and request.content_length > maks_ota:
         return jsonify({"error": f"opplastingen er "
                         f"{request.content_length} byte — urimelig "
                         f"stor firmware, avvist"}), 400
@@ -1157,19 +1301,39 @@ def api_ota_firmware():
         return jsonify({"error": f"ukjent filnavn «{base}» — venter "
                         + " eller ".join(OTA_FILER) +
                         " (byggestempel i navnet er valgfritt)"}), 400
-    data = f.read()
+    # Begrenset read() dekker også chunked transfer uten Content-Length
+    data = f.read(maks_ota + 1)
+    if len(data) > maks_ota:
+        return jsonify({"error": f"opplastingen er over {maks_ota} byte — "
+                        "urimelig stor firmware, avvist"}), 400
     feil = _ota_valider(data, base)
     if feil:
         return jsonify({"error": feil}), 400
     kanon, stempel = m.group(1) + ".bin", m.group(2) or ""
-    OTA_DIR.mkdir(exist_ok=True)
-    (OTA_DIR / kanon).write_bytes(data)
-    (OTA_DIR / (kanon + ".md5")).write_text(hashlib.md5(data).hexdigest())
-    sc = OTA_DIR / (kanon + ".stempel")
-    if stempel:
-        sc.write_text(stempel)
-    elif sc.exists():
-        sc.unlink()   # ustemplet bygg skal ikke arve forrige stempel
+    md5_hex = hashlib.md5(data).hexdigest()
+
+    def _skriv_fil_atomisk(sti: Path, innhold) -> None:
+        tmp = sti.with_suffix(sti.suffix + ".tmp")
+        if isinstance(innhold, bytes):
+            tmp.write_bytes(innhold)
+        else:
+            tmp.write_text(innhold, encoding="utf-8")
+        tmp.replace(sti)
+
+    with lock:
+        if ota_ko["kjorer"]:
+            return jsonify({"error": "OTA-køen kjører — last opp ny "
+                                     "firmware når den er ferdig"}), 400
+        OTA_DIR.mkdir(exist_ok=True)
+        _skriv_fil_atomisk(OTA_DIR / kanon, data)
+        _skriv_fil_atomisk(OTA_DIR / (kanon + ".md5"), md5_hex)
+        sc = OTA_DIR / (kanon + ".stempel")
+        if stempel:
+            _skriv_fil_atomisk(sc, stempel)
+        elif sc.exists():
+            sc.unlink()   # ustemplet bygg skal ikke arve forrige stempel
+    _sse_send_trygt("ota", _ota_payload)
+    _sse_send_trygt("ota_ko", _ota_ko_payload)
     return jsonify({"ok": True, "fil": kanon, "stempel": stempel})
 
 
@@ -1213,7 +1377,7 @@ OTA_KO_PAUSE_S = 3
 MASTER_STILLE_S = 35          # samme grense som master-kortet bruker
 ota_ko = {"kjorer": False, "stopp": False, "stempel": "",
           "aktiv": None, "venter": [], "ferdig": [], "feilet": [],
-          "avbrutt": [], "start_ts": None, "slutt_ts": None, "antall": 0}
+          "avbrutt": [], "start_mono": None, "slutt_mono": None, "antall": 0}
 _ota_ko_sov = time.sleep      # byttes ut i testene
 
 
@@ -1234,11 +1398,15 @@ def _ota_ko_utvalg(stempel: str) -> list:
     Noder uten stempel (svært gammel firmware) tas ikke med: køen kan
     ikke se når de er oppdatert. De oppdateres fra eget kort."""
     alias = {(v or {}).get("mac"): k
-             for k, v in (load_hal().get("noder") or {}).items()}
+             for k, v in (load_hal().get("noder") or {}).items()
+             if isinstance(v, dict) and k != v.get("mac")}
+    nodes_rå = cache["nodes"]
+    liste = nodes_rå.get("nodes") if isinstance(nodes_rå, dict) else []
     ut = [{"mac": n["mac"], "alias": alias.get(n["mac"], ""),
            "fra": n["bygget"]}
-          for n in (cache["nodes"] or {}).get("nodes") or []
-          if n.get("mac") and n.get("online") and n.get("bygget")
+          for n in (liste or [])
+          if isinstance(n, dict) and n.get("mac") and n.get("online")
+          and isinstance(n.get("bygget"), str) and n["bygget"]
           and n["bygget"] < stempel]
     return sorted(ut, key=lambda x: ((x["alias"] or x["mac"]).lower(),
                                      x["mac"]))
@@ -1254,7 +1422,7 @@ def _ota_ko_hindring():
         return ("firmwaren har ikke byggestempel (bygg med bygg-ota.sh) — "
                 "uten det kan køen ikke se når en node er oppdatert")
     hort = cache.get("master_hort_ts")
-    if not hort or time.time() - hort >= MASTER_STILLE_S:
+    if hort is None or time.monotonic() - hort >= MASTER_STILLE_S:
         return ("master er stille — kommandoene til nodene går via "
                 "masteren")
     if lamptest["running"]:
@@ -1263,12 +1431,17 @@ def _ota_ko_hindring():
 
 
 def _ota_ko_kjor():
-    stempel = ota_ko["stempel"]
+    with _ota_ko_lock:
+        stempel = ota_ko["stempel"]
     try:
-        while ota_ko["venter"] and not ota_ko["stopp"]:
-            n = ota_ko["venter"].pop(0)
-            n = dict(n, start_ts=time.time())
-            ota_ko["aktiv"] = n
+        while True:
+            with _ota_ko_lock:
+                if not ota_ko["venter"] or ota_ko["stopp"]:
+                    break
+                n = ota_ko["venter"].pop(0)
+                n = dict(n, start_mono=time.monotonic())
+                ota_ko["aktiv"] = n
+            _sse_send_trygt("ota_ko", _ota_ko_payload)
             mq.publish(f"{ROT}espnow/{n['mac']}/cmd", "ota")
             # Ventetiden telles i søvn, ikke i veggklokke: da kan testene
             # styre den, og en klokke som stilles underveis (Pi-en har
@@ -1281,38 +1454,72 @@ def _ota_ko_kjor():
                 if x and x.get("online") and x.get("bygget") == stempel:
                     ok = True
                     break
-            n["sekunder"] = ventet
             if ok:
-                ota_ko["ferdig"].append(n)
+                with _ota_ko_lock:
+                    n["sekunder"] = ventet
+                    ota_ko["ferdig"].append(n)
+                    ota_ko["aktiv"] = None
             else:
                 x = _node(n["mac"])
                 meldt = (x or {}).get("bygget")
-                n["grunn"] = (f"ikke tilbake med {stempel} innen "
-                              f"{OTA_KO_FRIST_S} s" +
-                              ("" if not x else
-                               " (offline)" if not x.get("online") else
-                               f" (melder {meldt})"))
-                ota_ko["feilet"].append(n)
-            ota_ko["aktiv"] = None
-            if ota_ko["venter"] and not ota_ko["stopp"]:
+                grunn = (f"ikke tilbake med {stempel} innen "
+                         f"{OTA_KO_FRIST_S} s" +
+                         ("" if not x else
+                          " (offline)" if not x.get("online") else
+                          f" (melder {meldt})"))
+                with _ota_ko_lock:
+                    n["sekunder"] = ventet
+                    n["grunn"] = grunn
+                    ota_ko["feilet"].append(n)
+                    ota_ko["aktiv"] = None
+            _sse_send_trygt("ota_ko", _ota_ko_payload)
+            with _ota_ko_lock:
+                mer = bool(ota_ko["venter"]) and not ota_ko["stopp"]
+            if mer:
                 _ota_ko_sov(OTA_KO_PAUSE_S)
-        if ota_ko["stopp"]:
-            ota_ko["avbrutt"] = ota_ko["venter"]
-            ota_ko["venter"] = []
+        with _ota_ko_lock:
+            if ota_ko["stopp"]:
+                ota_ko["avbrutt"] = ota_ko["venter"]
+                ota_ko["venter"] = []
     finally:
-        ota_ko["aktiv"] = None
-        ota_ko["kjorer"] = False
-        ota_ko["slutt_ts"] = time.time()
+        with _ota_ko_lock:
+            ota_ko["aktiv"] = None
+            ota_ko["kjorer"] = False
+            ota_ko["slutt_mono"] = time.monotonic()
+        _sse_send_trygt("ota_ko", _ota_ko_payload)
+
+
+def _ota_ko_payload() -> dict:
+    with _ota_ko_lock:
+        kopi = copy.deepcopy(ota_ko)
+    now = time.monotonic()
+    start_m = kopi.pop("start_mono", None)
+    slutt_m = kopi.pop("slutt_mono", None)
+    if start_m is not None:
+        slutt = slutt_m if slutt_m is not None else now
+        kopi["varighet_s"] = max(0, round(slutt - start_m))
+    else:
+        kopi["varighet_s"] = None
+    if isinstance(kopi.get("aktiv"), dict):
+        am = kopi["aktiv"].pop("start_mono", None)
+        if am is not None:
+            kopi["aktiv"]["varighet_s"] = max(0, round(now - am))
+    for liste in ("ferdig", "feilet", "venter", "avbrutt"):
+        for item in kopi.get(liste) or []:
+            if isinstance(item, dict):
+                item.pop("start_mono", None)
+    st = _ota_stempel()
+    kopi.update(kandidater=_ota_ko_utvalg(st) if st else [],
+                hindring=_ota_ko_hindring(),
+                # Til UI-et når det ikke er noe å oppdatere
+                fw_finnes=(OTA_DIR / OTA_FILER[0]).exists(),
+                fw_stempel=st)
+    return kopi
 
 
 @app.get("/api/ota/ko")
 def api_ota_ko():
-    st = _ota_stempel()
-    return jsonify(dict(ota_ko, kandidater=_ota_ko_utvalg(st) if st else [],
-                        hindring=_ota_ko_hindring(),
-                        # Til UI-et når det ikke er noe å oppdatere
-                        fw_finnes=(OTA_DIR / OTA_FILER[0]).exists(),
-                        fw_stempel=st))
+    return jsonify(_ota_ko_payload())
 
 
 @app.post("/api/ota/ko")
@@ -1325,12 +1532,14 @@ def api_ota_ko_start():
         utvalg = _ota_ko_utvalg(stempel)
         if not utvalg:
             return jsonify({"error": "ingen utdaterte noder online"}), 400
-        ota_ko.update(kjorer=True, stopp=False, stempel=stempel,
-                      aktiv=None, venter=utvalg, ferdig=[], feilet=[],
-                      avbrutt=[], start_ts=time.time(), slutt_ts=None,
-                      antall=len(utvalg))
+        with _ota_ko_lock:
+            ota_ko.update(kjorer=True, stopp=False, stempel=stempel,
+                          aktiv=None, venter=utvalg, ferdig=[], feilet=[],
+                          avbrutt=[], start_mono=time.monotonic(),
+                          slutt_mono=None, antall=len(utvalg))
     # antall FØR tråden starter: den tømmer «venter» (samme liste)
     antall = len(utvalg)
+    _sse_send_trygt("ota_ko", _ota_ko_payload)
     threading.Thread(target=_ota_ko_kjor, daemon=True).start()
     return jsonify({"ok": True, "antall": antall})
 
@@ -1339,16 +1548,18 @@ def api_ota_ko_start():
 def api_ota_ko_stopp():
     """Noden som oppdateres nå får fullføre — den er alt i gang, og å
     slutte å vente på den endrer ingenting for den. Resten avbrytes."""
-    if not ota_ko["kjorer"]:
-        return jsonify({"error": "OTA-køen kjører ikke"}), 400
-    ota_ko["stopp"] = True
+    with _ota_ko_lock:
+        if not ota_ko["kjorer"]:
+            return jsonify({"error": "OTA-køen kjører ikke"}), 400
+        ota_ko["stopp"] = True
+    _sse_send_trygt("ota_ko", _ota_ko_payload)
     return jsonify({"ok": True})
 
 
 # ---------- Pi-status: temperatur, nett, klienter, tjenester ----------
 # Leses med systemverktøy (tjenesten kjører som root). Alt feiler mykt,
 # så endepunktet virker (med hull) også utenfor en ekte Pi.
-_pi_cache = {"ts": 0.0, "data": None}
+_pi_cache = {"mono": None, "data": None}
 
 
 def _run(cmd, timeout=3):
@@ -1447,7 +1658,9 @@ def _pi_tjenester():
 # stille; vi justerer BARE når Pi-en ikke er NTP-synket, avviket er
 # stort, og det er lenge siden sist (to klienter skal ikke dra i hver
 # sin retning). fake-hwclock lagres straks, så tiden overlever reboot.
-_klokke_stilt = {"ts": None, "diff_s": None, "fra": None}
+# To tidsfelt: «mono» (monotonisk) brukes til 600 s karantene, mens
+# «ts» (veggklokke) brukes til å vise klokkeslettet for stillingen.
+_klokke_stilt = {"ts": None, "mono": None, "diff_s": None, "fra": None}
 _KLOKKE_TERSKEL_S = 120
 _KLOKKE_COOLDOWN_S = 600
 
@@ -1475,8 +1688,8 @@ def api_klokke():
         return jsonify({"status": "ntp", "diff_s": round(diff, 1)})
     if abs(diff) < _KLOKKE_TERSKEL_S:
         return jsonify({"status": "ok", "diff_s": round(diff, 1)})
-    if (_klokke_stilt["ts"]
-            and 0 <= time.time() - _klokke_stilt["ts"] < _KLOKKE_COOLDOWN_S):
+    mono = _klokke_stilt.get("mono")
+    if mono is not None and 0 <= time.monotonic() - mono < _KLOKKE_COOLDOWN_S:
         return jsonify({"status": "cooldown", "diff_s": round(diff, 1)})
     # Exit-koden må sjekkes: _run svelger den, og et mislykket «date»
     # ble meldt som «stilt» og startet 10 minutters karantene
@@ -1490,22 +1703,30 @@ def api_klokke():
         return jsonify({"error": "klarte ikke å stille klokken (date)",
                         "diff_s": round(diff, 1)}), 500
     _run(["fake-hwclock", "save"])        # overlev neste boot
-    _klokke_stilt.update(ts=time.time(), diff_s=round(diff, 1),
-                         fra=request.remote_addr)
+    _klokke_stilt.update(ts=time.time(), mono=time.monotonic(),
+                         diff_s=round(diff, 1), fra=request.remote_addr)
     _pi_cache["data"] = None              # vis ny klokke straks
     print(f"[klokke] stilt {round(diff)} s fra {request.remote_addr}",
           flush=True)
     return jsonify({"status": "stilt", "diff_s": round(diff, 1)})
 
 
+def _pi_data_cached(maks_alder: float = 3.0) -> dict:
+    # Lokal referanse til data+mono før sjekk: unngår kappløp der
+    # api_klokke() setter _pi_cache["data"] = None mellom if og return.
+    now = time.monotonic()
+    d = _pi_cache["data"]
+    m = _pi_cache["mono"]
+    if d is not None and m is not None and now - m < maks_alder:
+        return d
+    d = _pi_data()
+    _pi_cache.update(mono=now, data=d)
+    return d
+
+
 @app.get("/api/pi")
 def api_pi():
-    now = time.time()
-    if _pi_cache["data"] and now - _pi_cache["ts"] < 3:
-        return jsonify(_pi_cache["data"])
-    d = _pi_data()
-    _pi_cache.update(ts=now, data=d)
-    return jsonify(d)
+    return jsonify(_pi_data_cached(3.0))
 
 
 def _pi_data() -> dict:
@@ -2332,6 +2553,9 @@ def api_forrigling_save():
         # publiseringen INNENFOR låsen (se save_hal)
         _skriv_atomisk(FORRIGLING_FILE, data)
         publish_forrigling(data)
+    _sse_send_trygt("backup", _backup_status_payload)
+    _sse_send_trygt("konfig_endret", {"hva": "forrigling",
+                                      "version": data["version"]})
     return jsonify({"ok": True, "version": data["version"]})
 
 
@@ -2340,8 +2564,20 @@ def api_forrigling_save():
 # running: prøven skal gå (Stopp setter den False). traad: tråden lever
 # ennå — den kan henge i håndtrykket i opptil 3 s etter Stopp, og en ny
 # Start i det vinduet ga to tråder som kjempet om lampene.
+LAMPTEST_MAKS_S = 600
 lamptest = {"running": False, "traad": False, "progress": "", "i": 0,
             "total": 0}
+
+
+def _lamptest_payload() -> dict:
+    with _lt_lock:
+        d = {k: v for k, v in lamptest.items() if k != "start_mono"}
+        start_m = lamptest.get("start_mono")
+    if d.get("running") and start_m is not None:
+        d["igjen_s"] = max(0, round(LAMPTEST_MAKS_S - (time.monotonic() - start_m)))
+    else:
+        d["igjen_s"] = None
+    return d
 
 
 def lamp_list(data):
@@ -2401,13 +2637,15 @@ def _lt_vent(sek):
     NB: kun offline-meldinger MOTTATT ETTER prøvestart teller — en
     foreldet retained-offline (fra forrige reboot/OTA) skal ikke
     kollapse prøven på et blunk."""
-    slutt = time.time() + sek
-    while lamptest["running"] and time.time() < slutt:
+    slutt = time.monotonic() + sek
+    while lamptest["running"] and time.monotonic() < slutt:
         if (cache.get("master_status") == "offline"
-                and cache.get("master_status_ts", 0) > lamptest.get("start_ts", 0)):
-            lamptest.update(running=False,
-                            progress="AVBRUTT: master falt ut under "
-                            "prøven (LWT offline)")
+                and cache.get("master_status_ts", 0) > lamptest.get("start_mono", 0)):
+            with _lt_lock:
+                lamptest.update(running=False,
+                                progress="AVBRUTT: master falt ut under "
+                                "prøven (LWT offline)")
+            _sse_send_trygt("lamptest", _lamptest_payload)
             return
         time.sleep(0.05)
 
@@ -2415,8 +2653,10 @@ def _lt_vent(sek):
 def run_lamptest():
     """Slukk alt → alle blinker tre ganger → løpelys 0,5 s per lampe."""
     lamps = lamp_list(load_hal())
-    lamptest.update(running=True, total=len(lamps), i=0, progress="",
-                    start_ts=time.time())
+    with _lt_lock:
+        lamptest.update(running=True, total=len(lamps), i=0, progress="",
+                        start_mono=time.monotonic(), start_ts=time.time())
+    _sse_send_trygt("lamptest", _lamptest_payload)
     runde = 0
     avbrutt = None          # grunn til at prøven ikke kunne kjøres
     try:
@@ -2427,9 +2667,9 @@ def run_lamptest():
         # kvitteringen før noe slukkes — ellers kan en master som
         # aldri fikk «start» stått og malt signalbildene oppå prøven
         cache["lampeprove_ack"] = None
-        sendt = time.time()
+        sendt = time.monotonic()
         mq.publish(ROT + "master/lampeprove", "start")
-        while time.time() - sendt < 3.0 and lamptest["running"]:
+        while time.monotonic() - sendt < 3.0 and lamptest["running"]:
             a = cache.get("lampeprove_ack")
             if a and a["svar"] == "pauset":
                 break
@@ -2441,12 +2681,16 @@ def run_lamptest():
                            "den nettopp?")
             return
         # 1) Nullstill: alle lamper mørke
-        lamptest.update(progress="slukker alle lamper")
+        with _lt_lock:
+            lamptest.update(progress="slukker alle lamper")
+        _sse_send_trygt("lamptest", _lamptest_payload)
         _alle_lamper(lamps, "av")
         _lt_vent(1.0)
         # 2) Alle blinker tre ganger — pulssynkront (1 s på / 1 s av),
         #    så hele anlegget blunker i takt via nodenes blinkmodus
-        lamptest.update(progress="alle lamper blinker (3×)")
+        with _lt_lock:
+            lamptest.update(progress="alle lamper blinker (3×)")
+        _sse_send_trygt("lamptest", _lamptest_payload)
         _alle_lamper(lamps, "blink")
         _lt_vent(6.0)
         _alle_lamper(lamps, "av")
@@ -2456,8 +2700,10 @@ def run_lamptest():
             for idx, (mac, i2c, port, label, invert) in enumerate(lamps):
                 if not lamptest["running"]:
                     break   # stoppet av bruker
-                lamptest.update(i=idx + 1,
-                                progress=f"{label} (runde {runde})")
+                with _lt_lock:
+                    lamptest.update(i=idx + 1,
+                                    progress=f"{label} (runde {runde})")
+                _sse_send_trygt("lamptest", _lamptest_payload)
                 _lampe(mac, i2c, port, "pa", invert)
                 _lt_vent(0.5)
                 # Slukkes ALLTID — også lampen som lyste i Stopp-
@@ -2468,11 +2714,13 @@ def run_lamptest():
         # En AVBRUTT-grunn skal stå — før ble den straks overskrevet
         # med «stoppet etter 0 runder», og feilen ble aldri synlig
         # (også den _lt_vent skriver når master faller ut underveis)
-        if not avbrutt and str(lamptest.get("progress", "")).startswith(
-                "AVBRUTT"):
-            avbrutt = lamptest["progress"]
-        lamptest.update(running=False, traad=False,
-                        progress=avbrutt or f"stoppet etter {runde} runder")
+        with _lt_lock:
+            if not avbrutt and str(lamptest.get("progress", "")).startswith(
+                    "AVBRUTT"):
+                avbrutt = lamptest["progress"]
+            lamptest.update(running=False, traad=False,
+                            progress=avbrutt or f"stoppet etter {runde} runder")
+        _sse_send_trygt("lamptest", _lamptest_payload)
         # Gjenoppta re-render (utløser full gjenoppretting i master);
         # resync i tillegg for eldre master-firmware
         mq.publish(ROT + "master/lampeprove", "stopp")
@@ -2492,24 +2740,30 @@ def api_togvei_betjen():
     eller sikringen tar lengre tid), returneres svar=None og UI-et
     peker til meldingsloggen."""
     body = request.get_json(force=True)
-    tid = (body.get("id") or "").strip()
+    if not isinstance(body, dict):
+        return jsonify({"error": "ugyldig JSON-objekt"}), 400
+    tid = (body.get("id") or "").strip() if isinstance(body.get("id"), str) else ""
     hva = body.get("hva")
     if not tid or hva not in ("sikre", "stopp", "hjelpeutlos"):
         return jsonify(
             {"error": "trenger id og hva=sikre|stopp|hjelpeutlos"}), 400
-    sendt = time.time()
+    tegn = litra_ugyldig(tid)
+    if tegn:
+        return jsonify({"error": f"Togvei «{tid}»: tegnet '{tegn}' er "
+                        "ulovlig i MQTT-temaer"}), 400
+    sendt = time.monotonic()
     mq.publish(f"{ROT}togvei/{tid}/set", hva)
-    svar, svar_ts = None, None
+    svar, svar_mono = None, None
     frist = sendt + 1.5
-    while time.time() < frist:
+    while time.monotonic() < frist:
         m = cache["togvei_info"].get(tid)
-        if m and m["ts"] >= sendt:
+        if m and m["mono"] >= sendt:
             if svar != m["tekst"]:
                 # nytt/endret svar — men ikke returner straks: et raskt
                 # mellomsvar («sikring: venter sporvekselkontroll») skal
                 # kunne avløses av fasiten («sikret: kjorsignal satt»)
-                svar, svar_ts = m["tekst"], m["ts"]
-            elif time.time() - svar_ts > 0.4:
+                svar, svar_mono = m["tekst"], m["mono"]
+            elif time.monotonic() - svar_mono > 0.4:
                 break              # svaret har stått stille — godta det
         time.sleep(0.05)
     return jsonify({"ok": True, "svar": svar})
@@ -2689,7 +2943,11 @@ def api_hendelser():
     halen av fila (siste ~400 kB) — nok til noen tusen hendelser, og
     konstant kost uansett hvor stor loggen er. filter = delstreng som
     må finnes i rålinjen (tema eller data), ufølsom for store/små."""
-    n = min(int(request.args.get("n", 300) or 300), 2000)
+    try:
+        n = int(request.args.get("n", 300) or 300)
+    except (ValueError, TypeError):
+        n = 300
+    n = max(1, min(n, 2000))
     filt = (request.args.get("filter") or "").lower()
     rader, kuttet = [], False
     try:
@@ -2733,6 +2991,7 @@ def api_hendelser_aktiv():
         pass
     if _h_aktiv:
         hendelse_logg("pi/hendelseslogg", "logging slaatt paa", False)
+    _sse_send_trygt("hendelser_aktiv", {"aktiv": _h_aktiv})
     return jsonify({"ok": True, "aktiv": _h_aktiv})
 
 
@@ -2791,14 +3050,14 @@ def api_diagnostikk():
         "laget": naa.astimezone().isoformat(timespec="seconds"),
         "anlegg": _les_anlegg(),
         "pi": _pi_data(),
-        "master": api_master().get_json(),
+        "master": _master_payload(),
         "master_ack": {"hal": cache.get("master_ack"),
                        "forrigling": cache.get("forrigling_ack"),
                        "anlegg": cache.get("anlegg_ack")},
         "noder": cache.get("nodes"),
-        "ota": api_ota().get_json(),
-        "backup": api_backup_status().get_json(),
-        "lampeprove": dict(lamptest),
+        "ota": _ota_payload(),
+        "backup": _backup_status_payload(),
+        "lampeprove": _lamptest_payload(),
         "hendelseslogg_aktiv": HENDELSE_AKTIV_FIL.exists(),
     }
     buf = io.BytesIO()
@@ -2819,14 +3078,16 @@ def api_diagnostikk():
 
 @app.get("/api/lamptest")
 def api_lamptest_status():
-    return jsonify(lamptest)
+    return jsonify(_lamptest_payload())
 
 
 @app.post("/api/lamptest")
 def api_lamptest():
     body = request.get_json(force=True)
     if body.get("action") == "stop":
-        lamptest["running"] = False
+        with _lt_lock:
+            lamptest["running"] = False
+        _sse_send_trygt("lamptest", _lamptest_payload)
         return jsonify({"ok": True})
     # Sjekk-og-sett under lås: to samtidige forespørsler kunne begge
     # se «ikke i gang» og starte hver sin tråd, som så ville kjempet om
@@ -2840,8 +3101,10 @@ def api_lamptest():
         if ota_ko["kjorer"]:
             return jsonify({"error": "OTA-køen kjører — vent til den er "
                                      "ferdig"}), 400
-        lamptest["running"] = True
-        lamptest["traad"] = True
+        with _lt_lock:
+            lamptest.update(running=True, traad=True, i=0, progress="",
+                            start_mono=time.monotonic(), start_ts=time.time())
+    _sse_send_trygt("lamptest", _lamptest_payload)
     threading.Thread(target=run_lamptest, daemon=True).start()
     return jsonify({"ok": True})
 
@@ -2895,6 +3158,7 @@ def _noter_backup() -> None:
             "avtrykk": _konfig_avtrykk()})
     except OSError:
         pass                  # påminnelsen er hjelp, ikke en forutsetning
+    _sse_send_trygt("backup", _backup_status_payload)
 
 
 def _auto_kopier() -> list:
@@ -2931,12 +3195,10 @@ def _auto_backup(utgangspunkt: bool = False) -> None:
         for gml in _auto_kopier()[:-BACKUP_AUTO_ANTALL]:
             gml.unlink(missing_ok=True)
     except Exception as e:
-        cache["meldinger"].append(
-            {"tekst": f"automatisk backup feilet: {e}", "ts": time.time()})
+        _legg_til_melding(f"automatisk backup feilet: {e}")
 
 
-@app.get("/api/backup-status")
-def api_backup_status():
+def _backup_status_payload() -> dict:
     try:
         st = json.loads(BACKUP_STATUS_FILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -2949,9 +3211,14 @@ def api_backup_status():
         gml = st.get("avtrykk") or {}
         hva = [k for k in naa if gml.get(k) != naa[k]]
         endret = bool(hva)
-    return jsonify({"sist": st.get("tid") if st else None,
-                    "endret": endret, "hva": hva,
-                    "auto": [p.name for p in reversed(_auto_kopier())]})
+    return {"sist": st.get("tid") if st else None,
+            "endret": endret, "hva": hva,
+            "auto": [p.name for p in reversed(_auto_kopier())]}
+
+
+@app.get("/api/backup-status")
+def api_backup_status():
+    return jsonify(_backup_status_payload())
 
 
 @app.get("/api/backup-auto/<navn>")
@@ -3119,6 +3386,8 @@ def api_restore():
     # om anlegget) — den meldes bare tilbake så UI-et kan opplyse
     # Brukeren har nettopp gitt oss konfigen som fil — den ER backupen
     _noter_backup()
+    _sse_send_trygt("konfig_endret", {"hva": "restore",
+                                      "version": hal["version"]})
     ba = data.get("anlegg")
     ba_id = (ba.get("id") or "") if isinstance(ba, dict) else ""
     return jsonify({"ok": True, "version": hal["version"],
@@ -3148,6 +3417,80 @@ def api_forget():
         return jsonify({"error": "ugyldig MAC"}), 400
     mq.publish(ROT + "master/forget", mac)
     return jsonify({"ok": True})
+
+
+def _togvei_info_payload() -> dict:
+    now = time.monotonic()
+    return {
+        tid: {"tekst": m["tekst"], "alder_s": max(0, round(now - m["mono"]))}
+        for tid, m in list(cache["togvei_info"].items())
+    }
+
+
+def _snapshot_payload() -> dict:
+    return {
+        "master": _master_payload(),
+        "nodes": cache["nodes"] or {},
+        "inputs": dict(cache["inputs"]),
+        "ack": {
+            "hal": cache.get("master_ack") or {},
+            "forrigling": cache.get("forrigling_ack") or {},
+            "anlegg": cache.get("anlegg_ack") or {},
+        },
+        "togvei_info": _togvei_info_payload(),
+        "lamptest": _lamptest_payload(),
+        "ota": _ota_payload(),
+        "ota_ko": _ota_ko_payload(),
+        "backup": _backup_status_payload(),
+        "pi": _pi_data_cached(SSE_TICK_S),
+        "hendelser_aktiv": _h_aktiv,
+    }
+
+
+def _tick_payload() -> dict:
+    return {
+        "master": _master_payload(),
+        "lamptest": _lamptest_payload(),
+        "pi": _pi_data_cached(SSE_TICK_S),
+    }
+
+
+@app.get("/api/events")
+def api_events():
+    """Sanntidsstrøm (Server-Sent Events) for HAL-UI.
+
+    Abonnerer på navet FØR snapshotet bygges så ingen hendelse faller
+    mellom, sender deretter deltaer og en fast periodisk «tick» (uavhengig
+    av køtrafikk) med fersk alder/nedtelling og Pi-helse. Avmelder alltid
+    klienten i finally.
+    """
+    def stream():
+        klient = sse.abonner()
+        try:
+            yield _sse_ramme("snapshot", _snapshot_payload())
+            neste_tick = time.monotonic() + SSE_TICK_S
+            while not klient.lukket.is_set():
+                vent = max(0.0, neste_tick - time.monotonic())
+                try:
+                    ramme = klient.q.get(timeout=vent)
+                except queue.Empty:
+                    if klient.lukket.is_set():
+                        break
+                    yield _sse_ramme("tick", _tick_payload())
+                    neste_tick = time.monotonic() + SSE_TICK_S
+                    continue
+                if ramme is None or klient.lukket.is_set():
+                    break
+                yield ramme
+                if time.monotonic() >= neste_tick:
+                    yield _sse_ramme("tick", _tick_payload())
+                    neste_tick = time.monotonic() + SSE_TICK_S
+        finally:
+            sse.avmeld(klient)
+
+    return Response(stream(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache",
+                             "X-Accel-Buffering": "no"})
 
 
 # ---------- UI ----------

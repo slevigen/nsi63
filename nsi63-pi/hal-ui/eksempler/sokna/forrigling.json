@@ -1,0 +1,180 @@
+{
+  "version": "2026-08-22 15:57:10",
+  "updated": "2026-08-22T13:57:10+00:00",
+  "togveier": [
+    {
+      "fra": "A",
+      "frie": [
+        "A",
+        "1",
+        "01"
+      ],
+      "id": "A01",
+      "laaser": [
+        "RI1"
+      ],
+      "notes": "",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "normal"
+        }
+      ],
+      "start": "A",
+      "til": "01",
+      "utlosningsfelt": "1"
+    },
+    {
+      "fra": "A",
+      "frie": [
+        "A",
+        "1",
+        "02"
+      ],
+      "id": "A02",
+      "laaser": [
+        "RI2"
+      ],
+      "notes": "",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "avvik"
+        }
+      ],
+      "start": "A",
+      "til": "02",
+      "utlosningsfelt": "1"
+    },
+    {
+      "fra": "B",
+      "frie": [
+        "B",
+        "2",
+        "01"
+      ],
+      "id": "B01",
+      "notes": "",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "normal"
+        }
+      ],
+      "start": "B",
+      "til": "01",
+      "utlosningsfelt": "2"
+    },
+    {
+      "fra": "B",
+      "frie": [
+        "B",
+        "2",
+        "02"
+      ],
+      "id": "B02",
+      "laaser": [
+        "S1"
+      ],
+      "notes": "",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "avvik"
+        }
+      ],
+      "start": "B",
+      "til": "02",
+      "utlosningsfelt": "2"
+    },
+    {
+      "fra": "01",
+      "frie": [
+        "2",
+        "B"
+      ],
+      "id": "01B",
+      "notes": "",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "normal"
+        }
+      ],
+      "start": "L",
+      "til": "B",
+      "utlosningsfelt": "2"
+    },
+    {
+      "fra": "02",
+      "frie": [
+        "2",
+        "B"
+      ],
+      "id": "02B",
+      "laaser": [
+        "S1"
+      ],
+      "notes": "",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "2",
+          "stilling": "avvik"
+        }
+      ],
+      "start": "L",
+      "til": "B",
+      "utlosningsfelt": "2"
+    },
+    {
+      "fra": "01",
+      "frie": [
+        "1",
+        "A"
+      ],
+      "id": "01A",
+      "laaser": [
+        "RI1"
+      ],
+      "notes": "",
+      "spor": "01",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "normal"
+        }
+      ],
+      "start": "M",
+      "til": "A",
+      "utlosningsfelt": "1"
+    },
+    {
+      "fra": "02",
+      "frie": [
+        "1",
+        "A"
+      ],
+      "id": "02A",
+      "laaser": [
+        "RI2"
+      ],
+      "notes": "",
+      "spor": "02",
+      "sporveksler": [
+        {
+          "sporveksel": "1",
+          "stilling": "avvik"
+        }
+      ],
+      "start": "M",
+      "til": "A",
+      "utlosningsfelt": "1"
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+{
+  "kommentar": "Felles fasitdata for NSI63 HAL-UI. 'server_og_klient' kjøres i både pytest (app.py) og vitest (regler.ts). 'klient_og_master' er håndskrevne forventninger fra masteren/forrigling.cpp som kjøres i vitest (og struktursjekkes i pytest).",
+  "server_og_klient": {
+    "maks_litra": 23,
+    "litra_tegn": [
+      { "litra": "A", "ulovlig": null },
+      { "litra": "SpIII", "ulovlig": null },
+      { "litra": "V-1", "ulovlig": null },
+      { "litra": "A/B", "ulovlig": "/" },
+      { "litra": "A+", "ulovlig": "+" },
+      { "litra": "A#1", "ulovlig": "#" }
+    ],
+    "navnerom": [
+      { "type": "hovedsignal3", "ns": "hovedsignal" },
+      { "type": "hovedsignal2", "ns": "hovedsignal" },
+      { "type": "forsignal2", "ns": "forsignal" },
+      { "type": "skiftesignal2", "ns": "skiftesignal" },
+      { "type": "skiftesignal1", "ns": "skiftesignal" },
+      { "type": "dvergsignal3", "ns": "dvergsignal" },
+      { "type": "sporveksel", "ns": "sporveksel" },
+      { "type": "manuellveksel", "ns": "sporveksel" },
+      { "type": "sporfelt", "ns": "sporfelt" },
+      { "type": "trykknapp", "ns": "knapp" },
+      { "type": "bryter", "ns": "knapp" },
+      { "type": "samlelaas", "ns": "samlelaas" },
+      { "type": "rigel", "ns": "rigel" },
+      { "type": "sporsperre", "ns": "sporsperre" },
+      { "type": "klokke", "ns": "annet" },
+      { "type": "amperemeter", "ns": "annet" },
+      { "type": "utgang", "ns": "annet" },
+      { "type": "inngang", "ns": "annet" }
+    ],
+    "port_konflikter": [
+      {
+        "navn": "ut_pluss_ut_via_alias_og_mac",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "S1", "type": "sporfelt", "bindinger": [{ "sted": "panel", "node": "N1", "i2c": "0x40", "port": 2 }] },
+          { "id": "S2", "type": "sporfelt", "bindinger": [{ "sted": "panel", "node": "aa0000000001", "i2c": "0x40", "port": 2 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "deler utgangen"
+      },
+      {
+        "navn": "inn_pluss_ut_gpio_alias",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "K1", "type": "trykknapp", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "gpio", "port": 1 }] },
+          { "id": "KL", "type": "klokke", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "0x00", "port": 1 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "både inngang og utgang"
+      },
+      {
+        "navn": "inn_pluss_inn_er_lovlig",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "K1", "type": "trykknapp", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "0x20", "port": 3 }] },
+          { "id": "S1", "type": "sporfelt", "bindinger": [{ "sted": "sensor", "node": "N1", "i2c": "0x20", "port": 3 }] }
+        ],
+        "forvent_feil": false
+      },
+      {
+        "navn": "i2c_casing_og_heltall_normaliseres",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "S1", "type": "sporfelt", "bindinger": [{ "sted": "panel", "node": "N1", "i2c": "0X40", "port": 4 }] },
+          { "id": "S2", "type": "sporfelt", "bindinger": [{ "sted": "panel", "node": "N1", "i2c": 64, "port": 4 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "deler utgangen"
+      },
+      {
+        "navn": "lampespenn_kollisjon_paa_lampe_3",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "A", "type": "hovedsignal3", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 0 }] },
+          { "id": "S1", "type": "sporfelt", "bindinger": [{ "sted": "panel", "node": "N1", "i2c": "0x40", "port": 2 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "port 2"
+      },
+      {
+        "navn": "lampespenn_utenfor_pca9685",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "A", "type": "hovedsignal3", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 14 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "går utenfor"
+      },
+      {
+        "navn": "lampespenn_utenfor_gpio",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "FA", "type": "forsignal2", "bindinger": [{ "sted": "anlegg", "node": "N1", "i2c": "gpio", "port": 5 }] }
+        ],
+        "forvent_feil": true,
+        "hint": "går utenfor"
+      },
+      {
+        "navn": "ordrepunkter_40_ut_pluss_1_gpio_inn_feiler",
+        "noder": { "N1": { "mac": "aa0000000001" } },
+        "functions": [
+          { "id": "U0", "type": "utgang", "bindinger": [
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 0 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 1 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 2 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 3 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 4 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 5 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 6 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 7 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 8 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 9 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 10 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 11 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 12 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 13 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 14 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x40", "port": 15 }
+          ]},
+          { "id": "U1", "type": "utgang", "bindinger": [
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 0 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 1 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 2 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 3 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 4 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 5 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 6 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 7 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 8 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 9 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 10 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 11 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 12 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 13 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 14 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x41", "port": 15 }
+          ]},
+          { "id": "U2", "type": "utgang", "bindinger": [
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 0 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 1 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 2 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 3 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 4 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 5 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 6 },
+            { "sted": "anlegg", "node": "N1", "i2c": "0x42", "port": 7 }
+          ]},
+          { "id": "G1", "type": "trykknapp", "bindinger": [
+            { "sted": "anlegg", "node": "N1", "i2c": "gpio", "port": 0 }
+          ]}
+        ],
+        "forvent_feil": true,
+        "hint": "maks 40"
+      }
+    ],
+    "togvei_id_objekter": [
+      { "id": "A", "type": "hovedsignal3", "rolle": "innkjor", "linjefelt": "A", "bindinger": [] },
+      { "id": "L", "type": "hovedsignal3", "rolle": "utkjor", "linjefelt": "B", "bindinger": [] },
+      { "id": "I1", "type": "hovedsignal3", "rolle": "indre", "bindinger": [] },
+      { "id": "A", "type": "sporfelt", "rolle": "linjefelt", "side": "h", "bindinger": [] },
+      { "id": "B", "type": "sporfelt", "rolle": "linjefelt", "side": "v", "bindinger": [] },
+      { "id": "01", "type": "sporfelt", "rolle": "togspor", "bindinger": [] },
+      { "id": "02", "type": "sporfelt", "rolle": "togspor", "bindinger": [] }
+    ],
+    "togvei_id": [
+      {
+        "tv": { "fra": "A", "til": "01", "start": "A", "spor": "01", "frie": ["A", "1", "01"] },
+        "forventet": "A01"
+      },
+      {
+        "tv": { "fra": "01", "til": "B", "start": "L", "spor": "01", "frie": ["2", "B"] },
+        "forventet": "01B"
+      },
+      {
+        "tv": { "fra": "01", "til": "02", "start": "I1", "spor": "02", "frie": ["02"] },
+        "forventet": "0102"
+      },
+      {
+        "tv": { "start": "A", "spor": "01", "frie": ["A", "1", "01"] },
+        "forventet": "A01"
+      },
+      {
+        "tv": { "start": "L", "spor": "01", "frie": ["2", "B"] },
+        "forventet": "01B"
+      }
+    ]
+  },
+  "klient_og_master": {
+    "fiendtlige": [
+      {
+        "navn": "samme_startsignal",
+        "a": { "id": "A01", "start": "A", "frie": ["01"], "sporveksler": [] },
+        "b": { "id": "A02", "start": "A", "frie": ["02"], "sporveksler": [] },
+        "fiendtlig": true
+      },
+      {
+        "navn": "delt_sporfelt",
+        "a": { "id": "A01", "start": "A", "frie": ["A", "1", "01"], "sporveksler": [{ "sporveksel": "1", "stilling": "normal" }] },
+        "b": { "id": "B01", "start": "B", "frie": ["B", "2", "01"], "sporveksler": [{ "sporveksel": "2", "stilling": "normal" }] },
+        "fiendtlig": true
+      },
+      {
+        "navn": "veksel_ulik_stilling",
+        "a": { "id": "A01", "start": "A", "frie": ["01"], "sporveksler": [{ "sporveksel": "1", "stilling": "normal" }] },
+        "b": { "id": "02A", "start": "M", "frie": ["02"], "sporveksler": [{ "sporveksel": "1", "stilling": "avvik" }] },
+        "fiendtlig": true
+      },
+      {
+        "navn": "veksel_samme_stilling_forenlig",
+        "a": { "id": "A02", "start": "A", "frie": ["A", "1", "02"], "sporveksler": [{ "sporveksel": "1", "stilling": "avvik" }] },
+        "b": { "id": "01B", "start": "L", "frie": ["2", "B"], "sporveksler": [{ "sporveksel": "2", "stilling": "normal" }] },
+        "fiendtlig": false
+      },
+      {
+        "navn": "tomme_vekselrader_er_ikke_fiendtlige",
+        "a": { "id": "A01", "start": "A", "frie": ["01"], "sporveksler": [{ "sporveksel": "", "stilling": "normal" }] },
+        "b": { "id": "B02", "start": "B", "frie": ["02"], "sporveksler": [{ "sporveksel": "", "stilling": "avvik" }] },
+        "fiendtlig": false
+      }
+    ],
+    "signalbilde": [
+      {
+        "navn": "hovedsignal3_normal_gir_kjor",
+        "start_type": "hovedsignal3",
+        "sporveksler": [{ "sporveksel": "1", "stilling": "normal" }],
+        "bilde": "kjor"
+      },
+      {
+        "navn": "hovedsignal3_avvik_gir_redusert",
+        "start_type": "hovedsignal3",
+        "sporveksler": [{ "sporveksel": "1", "stilling": "avvik" }],
+        "bilde": "kjor-redusert"
+      },
+      {
+        "navn": "hovedsignal2_normal_gir_alltid_redusert",
+        "start_type": "hovedsignal2",
+        "sporveksler": [{ "sporveksel": "1", "stilling": "normal" }],
+        "bilde": "kjor-redusert"
+      }
+    ],
+    "auto_felt_objekter": [
+      { "id": "A", "type": "sporfelt", "rolle": "linjefelt", "side": "h", "bindinger": [] },
+      { "id": "B", "type": "sporfelt", "rolle": "linjefelt", "side": "v", "bindinger": [] },
+      { "id": "01", "type": "sporfelt", "rolle": "togspor", "bindinger": [] },
+      { "id": "1", "type": "sporfelt", "rolle": "", "bindinger": [] },
+      { "id": "2", "type": "sporfelt", "rolle": "", "bindinger": [] }
+    ],
+    "auto_felt": [
+      {
+        "navn": "innkjor_fra_linje_til_togspor",
+        "tv": { "fra": "A", "til": "01", "sporveksler": [{ "sporveksel": "1", "stilling": "normal" }] },
+        "frie": ["A", "1", "01"],
+        "utlos": "1"
+      },
+      {
+        "navn": "utkjor_fra_togspor_til_linje",
+        "tv": { "fra": "01", "til": "B", "sporveksler": [{ "sporveksel": "2", "stilling": "normal" }] },
+        "frie": ["2", "B"],
+        "utlos": "2"
+      }
+    ]
+  }
+}

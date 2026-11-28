@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #11151a;
+  --color-foreground: #ebe9e4;
+  --color-card: #171c23;
+  --color-card-foreground: #ebe9e4;
+  --color-popover: #1b222b;
+  --color-popover-foreground: #ebe9e4;
+  --color-primary: #e0a437;
+  --color-primary-foreground: #11151a;
+  --color-secondary: #1e252f;
+  --color-secondary-foreground: #ebe9e4;
+  --color-muted: #1a212a;
+  --color-muted-foreground: #8f9ba9;
+  --color-accent: #252f3d;
+  --color-accent-foreground: #ebe9e4;
+  --color-destructive: #e06c5b;
+  --color-destructive-foreground: #11151a;
+  --color-border: #2a3340;
+  --color-border-strong: #3b4758;
+  --color-input: #2a3340;
+  --color-ring: #e0a437;
+
+  /* NSI63 domenesemantikk */
+  --color-ok: #4ec06e;
+  --color-warn: #e06c5b;
+  --color-amber: #e0a437;
+  --color-inn: #5aa9e6;
+  --color-ut: #d98c4a;
+
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Skreddersydd rullefelt i kontrollromstil */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #11151a;
+}
+::-webkit-scrollbar-thumb {
+  background: #2e3846;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3f4d60;
+}

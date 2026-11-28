@@ -1,0 +1,18 @@
+{
+  "id": "SKN",
+  "navn": "SOKNA",
+  "nabo_venstre": "ØRGENVIKA",
+  "nabo_hoyre": "VEME",
+  "adopter": false,
+  "testmodus": false,
+  "fjernstyrt": false,
+  "tider": {
+    "hjelpeutlosning_s": 90,
+    "lok_etterlop_s": 10,
+    "veksel_omlegging_ms": 1500,
+    "veksel_timeout_ms": 5000,
+    "klokke_maks_s": 30
+  },
+  "hjelpeutlosning_s": 90,
+  "dekningsstilling": true
+}
