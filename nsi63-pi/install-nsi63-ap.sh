@@ -37,7 +37,8 @@ DHCP_START="10.206.0.100"
 DHCP_END="10.206.0.250"
 
 echo "== 1/6: Installerer hostapd og dnsmasq =="
-apt-get install -y hostapd dnsmasq
+# iw: app.py leser AP-klientene med «iw dev wlan0 station dump»
+apt-get install -y hostapd dnsmasq iw
 systemctl unmask hostapd
 
 echo "== 2/6: hostapd-konfigurasjon =="

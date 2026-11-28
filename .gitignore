@@ -6,6 +6,9 @@ nsi63-pi/hal-ui/anlegg.json
 
 # Svartboksloggen (skapes av app.py der den kjører)
 nsi63-pi/hal-ui/hendelser.jsonl*
+nsi63-pi/hal-ui/hendelser.aktiv
+# Firmware lastet opp til HAL-UI
+nsi63-pi/hal-ui/ota/
 
 # Lokalt rusk
 __pycache__/

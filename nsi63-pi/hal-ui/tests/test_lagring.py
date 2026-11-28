@@ -336,3 +336,44 @@ def test_startsignal_fra_feil_ende_avvises(anlegg):
     assert r.status_code == 400
     assert "linjefelt" in _feil(r)
     assert anlegg.fil("forrigling.json")["togveier"] == fr["togveier"]
+
+
+def test_sletting_av_objekt_i_togvei_avvises(anlegg):
+    # Et sporfelt som en togvei krever fritt, kan ikke slettes fra HAL
+    # så lenge togveien bruker det — referansen ville blitt død. Feltet
+    # velges blant dem bare togveiene bruker (andre fanges av
+    # topologisjekken først).
+    fr = anlegg.klient.get("/api/forrigling").get_json()["togveier"]
+    fns = anlegg.klient.get("/api/hal").get_json()["functions"]
+    for_ = anlegg.fil("hal.json")["functions"]
+    kandidater = sorted({x for tv in fr for x in tv.get("frie", [])})
+    if not kandidater:
+        pytest.skip("ingen togvei med frie felt")
+    funnet = False
+    for brukt in kandidater:
+        rest = [f for f in fns
+                if not (f.get("type") == "sporfelt" and f.get("id") == brukt)]
+        r = _lagre_hal(anlegg, rest)
+        assert r.status_code == 400, brukt     # aldri lagret
+        assert anlegg.fil("hal.json")["functions"] == for_
+        funnet = funnet or "henge sammen" in _feil(r)
+    assert funnet, "ingen sletting ble fanget av togveisjekken"
+
+
+def test_portkonflikt_ser_samme_brikke_uansett_skrivemaate(fersk):
+    # "0x40", "0X40" og 64 er samme brikke for master — to utganger på
+    # samme port (panellamper = utganger) skal fanges, og tall/tekst-
+    # miks skal ikke krasje
+    pk = fersk.app._port_konflikter
+    mac = "aa0000000001"
+    fns = [{"id": "X1", "type": "sporfelt", "bindinger": [
+                {"node": mac, "i2c": "0x40", "port": 3, "sted": "panel"}]},
+           {"id": "X2", "type": "sporfelt", "bindinger": [
+                {"node": mac, "i2c": "0X40", "port": 3, "sted": "panel"}]},
+           {"id": "X3", "type": "sporfelt", "bindinger": [
+                {"node": mac, "i2c": 64, "port": 5, "sted": "panel"}]},
+           {"id": "X4", "type": "sporfelt", "bindinger": [
+                {"node": mac, "i2c": "0x40", "port": 5, "sted": "panel"}]}]
+    feil = pk(fns, {}, {})
+    assert any("X1" in f and "X2" in f for f in feil), feil
+    assert any("X3" in f and "X4" in f for f in feil), feil

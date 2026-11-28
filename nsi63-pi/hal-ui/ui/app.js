@@ -1103,6 +1103,11 @@ function lesSubrad(tr) {
 }
 function typeChanged(sel) {   // brukerbytte: bygg underrader på nytt
   const tr = sel.closest("tr");
+  // Vekselområdet (skiftesignal) / omfatter-listen (samlelås, rigel)
+  // hører til den GAMLE typen. Ble det stående, lagret en annen type
+  // en usynlig skift_sporveksler som backend avviste, uten felt å
+  // rette den i.
+  delete tr.dataset.skiftv;
   // Egenskapslinjen blir stående — decorateRow fyller den på nytt for
   // den nye typen. Bindingslinjene rives: en annen type har andre
   // bindingssteder, og et sted som ikke finnes lenger skal ikke bæres
@@ -1392,10 +1397,18 @@ async function restoreBackup(input) {
   const fd = new FormData();
   fd.append("file", file);
   const msg = document.getElementById("msg");
-  const r = await fetch("/api/restore", {method: "POST", body: fd});
-  const j = await apiJson(r);
+  // Feilen vises som toast: #msg ligger på Objekter-fanen, mens
+  // knappen sitter på Noder-fanen — der så ingen den
+  let r, j;
+  try {
+    r = await fetch("/api/restore", {method: "POST", body: fd});
+    j = await apiJson(r);
+  } catch (e) {
+    toast("Gjenoppretting feilet: " + e, true);
+    return;
+  }
   if (!r.ok) { msg.textContent = j.error;
-               msg.className = "err"; return; }
+               msg.className = "err"; toast(j.error, true); return; }
   const oppsummering = `Gjenopprettet ${j.functions} funksjoner` +
     (j.togveier != null ? ` + ${j.togveier} togveier` : "") +
     ` — publisert ` + j.version +
@@ -2577,9 +2590,21 @@ async function saveAnlegg() {
   const nabo_hoyre = document.getElementById("anlegg-nabo-h").value.trim();
   // Tidslåsene: les feltene som FINNES. Kortet tegnes av serverens
   // beskrivelse, så en ny tidslås dukker opp her av seg selv.
+  //
+  // Et TOMT eller ugyldig felt avviser lagringen. Før ble det 0, og for
+  // tidslåsene der 0 betyr «av» (hjelpeutløsningens tidsrelé, Lok-
+  // etterløpet) slo et tømt felt av en sikkerhetstidslås uten varsel.
+  // Vil man ha den av, skriver man 0 selv.
   const tider = {};
-  for (const e of document.querySelectorAll('[id^="tid-"]'))
-    tider[e.id.slice(4)] = parseInt(e.value || "0");
+  for (const e of document.querySelectorAll('[id^="tid-"]')) {
+    const v = e.value.trim();
+    if (!/^\d+$/.test(v)) {
+      toast(`Tidslåsen «${e.id.slice(4)}» må ha et tall (0 = av)`, true);
+      e.focus();
+      return;
+    }
+    tider[e.id.slice(4)] = parseInt(v, 10);
+  }
   const r = await fetch("/api/anlegg", {method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({id, navn, nabo_venstre, nabo_hoyre,

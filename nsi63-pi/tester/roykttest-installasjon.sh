@@ -137,9 +137,13 @@ sjekk_installasjon() {
   # Med konfig i treet skal alle tre være der — ellers står panelet og
   # venter. Uten konfig (offentlig tre) skal HAL-UI IKKE publisere en
   # tom HAL som kunne overskrevet en masters flash-kopi.
+  # mosquitto_sub avslutter med 27 (MOSQ_ERR_TIMEOUT) når -W-vinduet
+  # løper ut — det er normalen her. Under pipefail ga det ikke-null
+  # status på hele røret også ved TREFF, og sjekken under ble alltid
+  # grønn. Statusen svelges, og grep leser fra en ferdig streng.
   temaer() {
-    timeout 5 mosquitto_sub -h 127.0.0.1 -t 'nsi63/config/#' -v \
-      --retained-only -W 2 2>/dev/null | cut -d' ' -f1 | sort -u
+    { timeout 5 mosquitto_sub -h 127.0.0.1 -t 'nsi63/config/#' -v \
+        --retained-only -W 2 2>/dev/null || true; } | cut -d' ' -f1 | sort -u
   }
   forventet="nsi63/config/anlegg"
   if [ -f /root/nsi63-pi/hal-ui/hal.json ]; then
@@ -150,8 +154,12 @@ sjekk_installasjon() {
       && ok "$t retained" || galt "$t mangler retained"
   done
   if [ ! -f /root/nsi63-pi/hal-ui/hal.json ]; then
-    temaer | grep -qx nsi63/config/hal \
-      && galt "tom HAL ble publisert retained" || ok "ingen tom HAL publisert"
+    funnet="$(temaer)"
+    if grep -qx nsi63/config/hal <<<"$funnet"; then
+      galt "tom HAL ble publisert retained"
+    else
+      ok "ingen tom HAL publisert"
+    fi
   fi
   # WebSocket-lytteren panelet bruker
   vent_paa 5 bash -c '</dev/tcp/127.0.0.1/9001' \

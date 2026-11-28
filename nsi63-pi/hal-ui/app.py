@@ -945,22 +945,28 @@ def _oppdater_ap_og_hostname(aid: str) -> dict:
 @app.post("/api/anlegg")
 def api_anlegg_save():
     data = request.get_json(force=True) or {}
-    aid = str(data.get("id", "")).strip().upper()
+    if not isinstance(data, dict):
+        return jsonify({"error": "forventet et JSON-objekt"}), 400
+    naa = _les_anlegg()
+    # Utelatt felt = DAGENS verdi, ikke en fast standard. Før ble et
+    # kall uten «id» til tom ID (anleggsfilteret av, AP-et omdøpt til
+    # «NSI63»), og et kall uten «testmodus»/«tider» satte dem tilbake.
+    aid = str(data.get("id", naa["id"])).strip().upper()
     # Navnene må BÆRES GJENNOM lagringen. Konfigen er en hviteliste,
     # og et felt som ikke nevnes her blir borte neste gang noen
     # trykker lagre et annet sted — navnene ville forsvunnet av seg
     # selv uten at noen rørte dem. Derfor: dagens verdi som reserve.
-    naa = _les_anlegg()
     navn, nabo_v, nabo_h = (
         str(data.get(k, naa[k])).strip()[:24]
         for k in ("navn", "nabo_venstre", "nabo_hoyre"))
-    adopter = bool(data.get("adopter", True))
+    adopter = bool(data.get("adopter", naa["adopter"]))
     # Testmodus er en SIKKERHETSOMGÅELSE: MQTT-kommandoer omgår
     # forriglingen. Den lagres som konfig (synlig i sikkerhetskopien),
     # men master maser hvert minutt så den ikke blir stående på.
-    testmodus = bool(data.get("testmodus", False))
-    fjernstyrt = bool(data.get("fjernstyrt", True))
-    dekning = bool(data.get("dekningsstilling", True))
+    testmodus = bool(data.get("testmodus", naa["testmodus"]))
+    fjernstyrt = bool(data.get("fjernstyrt", naa["fjernstyrt"]))
+    dekning = bool(data.get("dekningsstilling", naa.get("dekningsstilling",
+                                                        True)))
     # Bæres gjennom som navnene: et lagre-kall som ikke nevner feltet
     # (en eldre UI-fane) skal ikke slå det av
     vis_sim = bool(data.get("vis_sim", naa["vis_sim"]))
@@ -970,7 +976,9 @@ def api_anlegg_save():
     inn = data.get("tider") if isinstance(data.get("tider"), dict) else {}
     tider = {}
     for t in TIDSLAASER:
-        rå = inn.get(t["navn"], data.get(t["navn"], t["standard"]))
+        rå = inn.get(t["navn"], data.get(t["navn"],
+                                         naa["tider"].get(t["navn"],
+                                                          t["standard"])))
         try:
             v = int(rå)
         except (TypeError, ValueError):
@@ -1751,12 +1759,21 @@ def _port_konflikter(functions, st_map, noder):
             sted = b.get("sted") or ""
             n = int(t.get("lamper", 1)) if (
                 t and sted in ("anlegg", "panel")) else 1
+            # Adressen normaliseres som master leser den: "0X40", "0x40"
+            # og 64 er samme brikke, og "gpio" er adresse 0x00. Før fikk
+            # de ulike nøkler — kollisjoner slapp gjennom — og en miks
+            # av tall og tekst krasjet sorted() under (HTTP 500). Samme
+            # form brukes til GPIO-tellingen og kapasiteten.
+            i2c_n = _i2c_norm(b.get("i2c") if b.get("i2c") is not None
+                              else "")
+            if i2c_n in ("gpio", "0x0", "0x00"):
+                i2c_n = "gpio"
             inn = _er_inngangsbinding(f.get("type", ""), sted)
             if not inn:
                 ordrer[mac] = ordrer.get(mac, 0) + n
-            elif b.get("i2c") == "gpio":
+            elif i2c_n == "gpio":
                 ordrer[mac] = ordrer.get(mac, 0) + 1   # aktiveringsordre
-            kap = kapasitet(b.get("i2c"))
+            kap = kapasitet(i2c_n)
             port0 = _heltall(b.get("port"), feil,
                              f"{f.get('id')} ({sted}) port")
             if port0 < 0:
@@ -1769,7 +1786,7 @@ def _port_konflikter(functions, st_map, noder):
                     + f" går utenfor {b.get('i2c')} "
                     f"(porter 0–{kap - 1})")
             for k in range(n):
-                key = (mac, b.get("i2c"), port0 + k)
+                key = (mac, i2c_n, port0 + k)
                 bruk.setdefault(key, []).append(
                     (f.get("id"), sted,
                      _er_inngangsbinding(f.get("type", ""), sted)))
@@ -1903,13 +1920,12 @@ def api_save():
     stor = _for_stor(prove, "Objektkonfigurasjonen")
     if stor:
         return jsonify({"error": stor}), 400
-    data = save_hal(functions=functions)
-
     # Togveitabellen refererer litraer i tre navnerom — skriv om og
-    # regenerer togvei-ID-ene (de er avledet av linjefelt+spor)
+    # regenerer togvei-ID-ene (de er avledet av linjefelt+spor). Gjøres
+    # i minnet FØR noe lagres, så resultatet kan valideres under.
+    forr = load_forrigling()
+    endret = False
     if renames:
-        forr = load_forrigling()
-        endret = False
         for tv in forr.get("togveier", []):
             for felt, ns in (("start", "hovedsignal"),
                              ("spor", "sporfelt"),
@@ -1943,8 +1959,17 @@ def api_save():
             if nyid and nyid != tv.get("id"):
                 tv["id"] = nyid
                 endret = True
-        if endret:
-            _skriv_og_publiser(forr, FORRIGLING_FILE, publish_forrigling)
+    # Togveiene må fortsatt HENGE SAMMEN med den nye objekttabellen.
+    # Før kunne et objekt som en togvei bruker slettes eller få ny type;
+    # referansen ble hengende død i forrigling.json, master avviste
+    # togveien i stillhet, og neste lagring av togveier feilet.
+    tv_feil = _togvei_feil(forr.get("togveier", []), functions, st_map)
+    if tv_feil:
+        return jsonify({"error": "Togveiene ville ikke lenger henge "
+                        f"sammen: {tv_feil} — endre togveien først"}), 400
+    data = save_hal(functions=functions)
+    if endret:
+        _skriv_og_publiser(forr, FORRIGLING_FILE, publish_forrigling)
     return jsonify({"ok": True, "version": data["version"],
                     "omdopt": len(renames), "referanser": n_refs})
 
@@ -2023,19 +2048,27 @@ def api_node_driver():
 
 # ---------- Forriglingstabellen (togveier) ----------
 
-def load_forrigling() -> dict:
-    if FORRIGLING_FILE.exists():
-        with open(FORRIGLING_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {"version": 0, "updated": None, "togveier": []}
-    # Migrering: gammel ordnet "utlosning"-liste -> to rollefelt
+def _migrer_utlosning(data: dict) -> dict:
+    """Gammel ordnet "utlosning"-liste -> to rollefelt. Felles for
+    lasting fra fil og gjenoppretting fra backup — uten den i
+    gjenopprettingen gikk en eldre backup ut uten «utlosningsfelt», og
+    master løste aldri togveiene ut automatisk."""
     for tv in data.get("togveier", []):
         if "utlosning" in tv and "signalfall" not in tv:
             arr = tv.pop("utlosning")
             tv["signalfall"] = arr[0] if arr else ""
             tv["utlosningsfelt"] = arr[1] if len(arr) > 1 else \
                 (arr[0] if arr else "")
+    return data
+
+
+def load_forrigling() -> dict:
+    if FORRIGLING_FILE.exists():
+        with open(FORRIGLING_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = {"version": 0, "updated": None, "togveier": []}
+    _migrer_utlosning(data)
     # Håndstilte veksler ut av veksellisten, over i låsekravet. Krever
     # HAL-en, som sier hvilke veksler som er manuelle og hvilken lås
     # som omfatter dem.
@@ -2211,7 +2244,11 @@ def api_forrigling_save():
 
 # ---------- Lampeprøve: tenn hver konfigurerte lampe i tur ----------
 
-lamptest = {"running": False, "progress": "", "i": 0, "total": 0}
+# running: prøven skal gå (Stopp setter den False). traad: tråden lever
+# ennå — den kan henge i håndtrykket i opptil 3 s etter Stopp, og en ny
+# Start i det vinduet ga to tråder som kjempet om lampene.
+lamptest = {"running": False, "traad": False, "progress": "", "i": 0,
+            "total": 0}
 
 
 def lamp_list(data):
@@ -2241,6 +2278,12 @@ def lamp_list(data):
                           "middelkontrollampe"):
                 # enkeltlamper på stillerapparatet: sporfeltindikering
                 # og vekslenes kontrollamper
+                lamps.append((mac, b["i2c"], int(b["port"]),
+                              f'{f["id"]} ({sted})', invert))
+            elif sted == "anlegg" and f.get("type") in ("samlelaas",
+                                                        "rigel"):
+                # «frigitt»-lampa ute ved låsen (master driver den) —
+                # ikke en signaltype, så den falt utenfor over
                 lamps.append((mac, b["i2c"], int(b["port"]),
                               f'{f["id"]} ({sted})', invert))
     return lamps
@@ -2282,8 +2325,10 @@ def run_lamptest():
     lamptest.update(running=True, total=len(lamps), i=0, progress="",
                     start_ts=time.time())
     runde = 0
+    avbrutt = None          # grunn til at prøven ikke kunne kjøres
     try:
         if not lamps:
+            avbrutt = "AVBRUTT: ingen lamper i HAL"
             return
         # HÅNDTRYKK: be master pause bildemotoren, og VENT på
         # kvitteringen før noe slukkes — ellers kan en master som
@@ -2291,15 +2336,16 @@ def run_lamptest():
         cache["lampeprove_ack"] = None
         sendt = time.time()
         mq.publish(ROT + "master/lampeprove", "start")
-        while time.time() - sendt < 3.0:
+        while time.time() - sendt < 3.0 and lamptest["running"]:
             a = cache.get("lampeprove_ack")
             if a and a["svar"] == "pauset":
                 break
             time.sleep(0.05)
         else:
-            lamptest.update(progress="AVBRUTT: master bekrefter ikke "
-                            "pausen — kjører den eldre firmware, eller "
-                            "rebootet den nettopp?")
+            if lamptest["running"]:     # ikke stoppet av bruker
+                avbrutt = ("AVBRUTT: master bekrefter ikke pausen — "
+                           "kjører den eldre firmware, eller rebootet "
+                           "den nettopp?")
             return
         # 1) Nullstill: alle lamper mørke
         lamptest.update(progress="slukker alle lamper")
@@ -2326,8 +2372,14 @@ def run_lamptest():
                 _lampe(mac, i2c, port, "av", invert)
                 _lt_vent(0.1)
     finally:
-        lamptest.update(running=False,
-                        progress=f"stoppet etter {runde} runder")
+        # En AVBRUTT-grunn skal stå — før ble den straks overskrevet
+        # med «stoppet etter 0 runder», og feilen ble aldri synlig
+        # (også den _lt_vent skriver når master faller ut underveis)
+        if not avbrutt and str(lamptest.get("progress", "")).startswith(
+                "AVBRUTT"):
+            avbrutt = lamptest["progress"]
+        lamptest.update(running=False, traad=False,
+                        progress=avbrutt or f"stoppet etter {runde} runder")
         # Gjenoppta re-render (utløser full gjenoppretting i master);
         # resync i tillegg for eldre master-firmware
         mq.publish(ROT + "master/lampeprove", "stopp")
@@ -2687,14 +2739,16 @@ def api_lamptest():
     # se «ikke i gang» og starte hver sin tråd, som så ville kjempet om
     # de samme lampene.
     with lock:
-        if lamptest["running"]:
-            return jsonify({"error": "lampeprøve pågår allerede"}), 400
+        if lamptest["running"] or lamptest.get("traad"):
+            return jsonify({"error": "lampeprøve pågår allerede (eller "
+                                     "avsluttes)"}), 400
         # En node som henter firmware er mørk — lampeprøven ville meldt
         # den som feil, og den ville forstyrret ventingen i køen
         if ota_ko["kjorer"]:
             return jsonify({"error": "OTA-køen kjører — vent til den er "
                                      "ferdig"}), 400
         lamptest["running"] = True
+        lamptest["traad"] = True
     threading.Thread(target=run_lamptest, daemon=True).start()
     return jsonify({"ok": True})
 
@@ -2932,6 +2986,12 @@ def api_restore():
     if stor:
         return jsonify({"error": "backup: " + stor}), 400
     if forr is not None:
+        # Løft eldre togveitabeller FØRST, som load_forrigling() gjør —
+        # FØR kapasitetssjekken: migreringen flytter håndveksler ut av
+        # veksellisten, og en gammel backup med mange veksler ble ellers
+        # avvist for noe den nye formen ikke har.
+        forr = _migrer_utlosning(forr)
+        forr = migrate_forrigling(forr, hal["functions"])
         kapt = _kapasitet_feil_togvei(forr["togveier"])
         if kapt:
             return jsonify({"error": "backup, kapasitet: "
@@ -2943,10 +3003,6 @@ def api_restore():
         # BACKUPENS egen HAL: typede referanser (start, veksler, frie,
         # utløsningsfelt, låser), grensen for låser per togvei og
         # rolle-/retningsreglene for togsporet.
-        # Løft eldre togveitabeller FØRST, som load_forrigling() gjør:
-        # håndveksler i vekselisten flyttes til «laaser». Ellers avviste
-        # den strenge valideringen under en gammel, men gyldig, backup.
-        forr = migrate_forrigling(forr, hal["functions"])
         feil = _togvei_feil(forr["togveier"], hal["functions"],
                             hal.get("signaltyper", {}))
         if feil:
