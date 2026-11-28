@@ -20,6 +20,7 @@
   import Button from "$components/ui/Button.svelte";
   import Badge from "$components/ui/Badge.svelte";
   import Dialog from "$components/ui/Dialog.svelte";
+  import NsiLogo from "$components/NsiLogo.svelte";
   import { betjenLampeprove, stoppOtaKo } from "$lib/api/klient";
   import { fmtKlokkeNed } from "$lib/domain/regler";
   import { draft } from "$lib/stores/draft.svelte";
@@ -388,19 +389,35 @@
     <div class="flex-1 flex flex-col min-w-0">
       <!-- Topplinje -->
       <header
-        class="h-12 shrink-0 border-b border-border bg-card/70 px-4 flex items-center justify-between gap-3"
+        class="min-h-12 shrink-0 border-b border-border bg-card/70 px-4 py-1.5 flex items-center justify-between gap-3"
       >
         <div class="flex items-center gap-2.5 min-w-0">
           <Button
             variant="ghost"
             size="icon"
-            class="md:hidden"
+            class="md:hidden shrink-0"
             aria-label="Meny"
             onclick={() => (mobilMeny = true)}
           >
             <Menu class="w-4 h-4" />
           </Button>
-          <h1 class="text-sm font-semibold truncate">{TITLER[activeView]}</h1>
+          <div class="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 min-w-0">
+            <a
+              href="#oversikt"
+              onclick={(e) => {
+                e.preventDefault();
+                velgFane("oversikt");
+              }}
+              class="inline-flex items-center text-foreground/95 hover:text-foreground transition-colors shrink-0"
+              title="Norsk Signal-Industri — Oversikt"
+            >
+              <NsiLogo class="h-[13px] sm:h-[17px] lg:h-[19px] w-auto block" />
+            </a>
+            <span class="hidden sm:block h-4 w-px bg-border shrink-0"></span>
+            <h1 class="text-[11px] sm:text-sm font-semibold text-muted-foreground sm:text-foreground truncate leading-tight">
+              {TITLER[activeView]}
+            </h1>
+          </div>
         </div>
 
         <div class="flex items-center gap-2.5">
