@@ -132,3 +132,27 @@ def test_retained_melding_regnes_ikke_som_hort(fersk):
     assert fersk.klient.get("/api/master").get_json()["sist_hort_s"] is None
     a.on_message(None, None, _Msg("nsi63/master/info", b'{"fw": 2}', False))
     assert a.cache["master_hort_ts"] is not None
+
+
+# ---------- ryddebolk: B6 (/api/klokke) ----------
+
+def test_klokke_avviser_nan_og_uendelig(fersk):
+    for v in ("NaN", "Infinity", "-Infinity", 1e30):
+        r = fersk.klient.post("/api/klokke", data='{"epoch_ms": %s}' % v,
+                              content_type="application/json")
+        assert r.status_code == 400, v
+
+
+def test_klokke_melder_feil_naar_date_feiler(fersk, monkeypatch):
+    import subprocess
+    app = fersk.app
+    monkeypatch.setattr(app, "_ntp_synk", lambda: False)
+    app._klokke_stilt.update(ts=0)
+
+    def run(args, *a, **kw):
+        rc = 1 if args and args[0] == "date" else 0
+        return subprocess.CompletedProcess(args, rc, stdout="", stderr="")
+    monkeypatch.setattr(app.subprocess, "run", run)
+    r = fersk.klient.post("/api/klokke", json={"epoch_ms": 4.0e12})
+    assert r.status_code == 500
+    assert not app._klokke_stilt.get("ts")   # ingen karantene

@@ -23,6 +23,7 @@ import copy
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -1459,11 +1460,15 @@ def _ntp_synk():
 @app.post("/api/klokke")
 def api_klokke():
     body = request.get_json(force=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "ugyldig epoch_ms"}), 400
     try:
         nett_s = float(body.get("epoch_ms", 0)) / 1000.0
     except (TypeError, ValueError):
         return jsonify({"error": "ugyldig epoch_ms"}), 400
-    if nett_s < 1e9:                      # åpenbart tull (før 2001)
+    # NaN/Infinity kom gjennom float() og krasjet int() under (HTTP 500).
+    # Åpenbart tull avvises: før 2001 eller etter 2100.
+    if not math.isfinite(nett_s) or not (1e9 <= nett_s < 4102444800):
         return jsonify({"error": "ugyldig epoch_ms"}), 400
     diff = nett_s - time.time()
     if _ntp_synk():                       # ekte NTP vinner alltid
@@ -1473,7 +1478,17 @@ def api_klokke():
     if (_klokke_stilt["ts"]
             and 0 <= time.time() - _klokke_stilt["ts"] < _KLOKKE_COOLDOWN_S):
         return jsonify({"status": "cooldown", "diff_s": round(diff, 1)})
-    _run(["date", "-u", "-s", "@%d" % int(nett_s)])
+    # Exit-koden må sjekkes: _run svelger den, og et mislykket «date»
+    # ble meldt som «stilt» og startet 10 minutters karantene
+    try:
+        r = subprocess.run(["date", "-u", "-s", "@%d" % int(nett_s)],
+                           capture_output=True, text=True, timeout=5)
+        ok = r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    if not ok:
+        return jsonify({"error": "klarte ikke å stille klokken (date)",
+                        "diff_s": round(diff, 1)}), 500
     _run(["fake-hwclock", "save"])        # overlev neste boot
     _klokke_stilt.update(ts=time.time(), diff_s=round(diff, 1),
                          fra=request.remote_addr)
@@ -2965,10 +2980,15 @@ def api_backup():
 
 def _skriv_og_publiser(data: dict, fil, publiser):
     with lock:
-        data["version"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        data["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        _skriv_atomisk(fil, data)
-        publiser(data)   # innenfor låsen — se save_hal
+        _skriv_og_publiser_laast(data, fil, publiser)
+
+
+def _skriv_og_publiser_laast(data: dict, fil, publiser):
+    """Som _skriv_og_publiser, for kallere som alt holder låsen."""
+    data["version"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data["updated"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _skriv_atomisk(fil, data)
+    publiser(data)   # innenfor låsen — se save_hal
 
 
 @app.post("/api/restore")
@@ -3086,11 +3106,15 @@ def api_restore():
         if feil:
             return jsonify({"error": "backup: " + feil}), 400
 
-    _skriv_og_publiser(hal, HAL_FILE, publish_config)
+    # HAL og togveier under ÉN lås: med to ville en annen lagring kunne
+    # komme imellom og blandet gammel og gjenopprettet konfig
     n_tv = None
-    if forr is not None:
-        _skriv_og_publiser(forr, FORRIGLING_FILE, publish_forrigling)
-        n_tv = len(forr["togveier"])
+    with lock:
+        _skriv_og_publiser_laast(hal, HAL_FILE, publish_config)
+        if forr is not None:
+            _skriv_og_publiser_laast(forr, FORRIGLING_FILE,
+                                     publish_forrigling)
+            n_tv = len(forr["togveier"])
     # Anleggs-ID-en i backupen brukes ALDRI automatisk (den ville døpt
     # om anlegget) — den meldes bare tilbake så UI-et kan opplyse
     # Brukeren har nettopp gitt oss konfigen som fil — den ER backupen

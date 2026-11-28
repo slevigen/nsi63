@@ -129,7 +129,11 @@ ssh_over_wlan0() {
   for ip in $(ip -4 -o addr show dev wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
     for lokal in $(ss -tnH state established '( sport = :22 )' 2>/dev/null \
                      | awk '{print $3}'); do
-      [ "${lokal%:*}" = "$ip" ] && return 0
+      # «ss» viser IPv4-klienter mot en dual-stack-sshd (::) som
+      # [::ffff:192.168.1.5]:22 — klammer og IPv4-prefiks må av
+      lokal="${lokal%:*}"; lokal="${lokal#[}"; lokal="${lokal%]}"
+      lokal="${lokal#::ffff:}"
+      [ "$lokal" = "$ip" ] && return 0
     done
   done
   return 1
