@@ -7,7 +7,8 @@
      (nsi63/config/hal + forrigling + anlegg) og har ingen egen
      autoritet: all betjening publiseres til de samme temaene som
      HAL-UI og det fysiske apparatet, og forrigles av master.
-     Mistes forbindelsen: fail-safe FRAKOBLET-overlegg umiddelbart. -->
+     Mistes forbindelsen — til brokeren ELLER masterens egen (LWT på
+     nsi63/master/status) — fail-safe FRAKOBLET-overlegg umiddelbart. -->
 <html lang="no">
 <head>
 <meta charset="utf-8">
@@ -222,7 +223,7 @@
   <button onclick="instruksLukk()">Lukk instruks</button></div>
   <iframe title="Instruks"></iframe></div>
 <div id="frakoblet">FRAKOBLET<br>
-  <span style="font-size:15px;font-weight:400;color:#d7d9dc">
+  <span id="frakoblet-hvorfor" style="font-size:15px;font-weight:400;color:#d7d9dc">
   panelet viser ikke gyldig tilstand</span></div>
 
 <script src="/panel/mqtt.js"></script>
@@ -439,19 +440,38 @@ document.addEventListener("visibilitychange", () => {
 /* ---------- MQTT ---------- */
 const klient = mqtt.connect("ws://" + location.hostname + ":9001",
                             { reconnectPeriod: 2000, keepalive: 20 });
+// TO forbindelser må være oppe for at panelet viser gyldig tilstand:
+// vår egen til brokeren, og MASTERENS. Dør master mens brokeren lever,
+// står de retained temaene igjen og ser helt gyldige ut — det er bare
+// LWT-en på master/status («offline») som sier fra. Masteren regnes
+// som borte til vi har HØRT «online»: ved (gjen)oppkobling kommer den
+// retained statusen straks etter abonnementet.
+let brokerDod = true, masterDod = true;
 klient.on("connect", () => {
-  dod(false);
+  brokerDod = false;
+  masterDod = true;               // til master/status sier «online»
+  dod();
   klient.subscribe(ROT + "#");
 });
-["close", "offline", "error"].forEach(e => klient.on(e, () => dod(true)));
+["close", "offline", "error"].forEach(e =>
+  klient.on(e, () => { brokerDod = true; dod(); }));
+dod();                            // FRAKOBLET til begge er bekreftet
 // Ingen «tilkoblet»-linje: at forbindelsen er oppe sier siden selv
 // ved å vise noe i det hele tatt. Det er det MOTSATTE som må ropes
 // ut, og det gjør FRAKOBLET-overlegget.
-function dod(erDod) {
+function dod() {
+  const erDod = brokerDod || masterDod;
+  document.getElementById("frakoblet-hvorfor").textContent =
+    brokerDod ? "ingen forbindelse til anlegget"
+              : "master svarer ikke — panelet viser ikke gyldig tilstand";
   document.body.classList.toggle("dod", erDod);
   // En klokke som ringer videre på en død forbindelse lyver: master
   // kan for lengst ha stoppet den
   if (erDod) ringStopp();
+  // ... og en klokke som ringer på en LEVENDE forbindelse skal høres:
+  // kom «ringer» mens panelet sto i FRAKOBLET (retained, i vilkårlig
+  // rekkefølge med master/status), holdt kanRinge() den taus
+  else if (LYD.tilstand === "ringer") ringStart();
 }
 function pub(tema, pl) { klient.publish(ROT + tema, String(pl)); }
 
@@ -495,6 +515,8 @@ function titt() {
 }
 function mstat(s) {
   if (s !== "online") logg("master/status", s);
+  masterDod = (s !== "online");
+  dod();
 }
 
 /* ---------- logg (nederst) ---------- */
@@ -1641,7 +1663,6 @@ function byggPlan(fns) {
     }
   }
   /* vekslene: klikkflate + kontrollamper lagt langs greinretningene */
-  const vSens = {};   // litra -> har stillingssensorer
   const vFeltAv = {}; // litra -> sporvekselfeltet (for belagt-lampa)
   const kantFra = {};
   for (const k of kanter) {
@@ -1695,11 +1716,8 @@ function byggPlan(fns) {
     // har ingen lamper — forbildet hadde ingen sensorer på dem:
     // sikringsanlegget forholder seg bare til NØKLENES status.
     const vf = fns.find(f => f.id === litra && erVeksel(f.type));
-    const harSens = vf && (vf.bindinger || []).some(b =>
-      b.sted === "sensor-normal" || b.sted === "sensor-avvik");
     const harDriv = vf && (vf.bindinger || []).some(b =>
       b.sted === "ut-normal" || b.sted === "ut-avvik");
-    vSens[litra] = !!harSens;
     let lamper = ``;
     if (vSentral[litra] || harDriv) {
       // Sporvekselfeltets FELTLAMPE: feltet utledes som i master —
@@ -2402,8 +2420,14 @@ function byggPlan(fns) {
     // Ingen lampe over Lok-stilleren: spaken viser selv om enden er
     // frigitt, og forbildets frigivningsmelding er lokalstillerlampen
     // UTE ved vekselen — ikke et lys på apparatet.
-    ut.push({ slag: "lok", id: side, farge: "#d8a400",
-              navn: side === "v" ? "Lok I" : "Lok II" });
+    // Navn og tilstedeværelse fra konfigen: bryteren med rolle
+    // lok-v/lok-h. Hardkodet «Lok I/II» etter side var omvendt på
+    // Sokna (Lok1 = lok-h), og viste stillere på stasjoner uten Lok.
+    const lokB = fns.find(f => f.type === "bryter" &&
+                               f.rolle === "lok-" + side);
+    if (lokB)
+      ut.push({ slag: "lok", id: side, farge: "#d8a400",
+                navn: lokB.navn || lokB.id });
     for (const l of bsVeksL)
       if (bsVekselSide(l) === side)
         ut.push({ slag: "veksel", id: l, farge: "#2b6fc2",
@@ -2669,13 +2693,11 @@ function byggPlan(fns) {
   for (const sp of sperrer) ampBind(`sporsperre/${sp.id}/state`);
   for (const litra of Object.keys(vx))
     planBind(`sporveksel/${litra}/state`, pl => {
-      // uten tungekontroll (ingen sensorer, eller stilling ikke
-      // bekreftet) er lampene bare SLUKKET — de blinker aldri
-      if (!vSens[litra]) {
-        plSet(`pl-vn-${litra}`, "av");
-        plSet(`pl-va-${litra}`, "av");
-        return;
-      }
+      // Speiler master, som det fysiske panelet (vekselBilde): lampa
+      // lyser når stillingen er normal/avvik, ellers SLUKKET (under
+      // omlegging, feil, ukjent) — den blinker aldri. En sensorløs
+      // veksel får ANTATT kontroll etter omleggingstiden, som på det
+      // fysiske panelet; før holdt /panel den alltid mørk.
       plSet(`pl-vn-${litra}`, pl === "normal" ? "pa" : "av");
       plSet(`pl-va-${litra}`, pl === "avvik" ? "pa" : "av");
     });

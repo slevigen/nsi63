@@ -314,3 +314,25 @@ def test_manuellveksel_med_sensorer_og_lamper(fersk):
     assert r.status_code == 200, _feil(r)
     lamper = {besk for _, _, _, besk, _ in fersk.app.lamp_list(fersk.app.load_hal())}
     assert "V1 (panel-normal)" in lamper and "V1 (panel-avvik)" in lamper
+
+
+def test_startsignal_fra_feil_ende_avvises(anlegg):
+    # En innkjørtogvei fra ett linjefelt kan ikke ha innkjørsignalet til
+    # det ANDRE linjefeltet som start — det skjedde når «fra» ble endret
+    # og UI-et stille beholdt det gamle startsignalet
+    fr = anlegg.klient.get("/api/forrigling").get_json()
+    hal = anlegg.klient.get("/api/hal").get_json()["functions"]
+    innkjor = [f for f in hal if f.get("rolle") == "innkjor"
+               and f.get("linjefelt")]
+    tv = copy.deepcopy(fr["togveier"])
+    mal = next((t for t in tv if t.get("fra") and any(
+        f["id"] == t.get("start") for f in innkjor)), None)
+    feil = next((f for f in innkjor
+                 if mal and f.get("linjefelt") != mal["fra"]), None)
+    if not mal or not feil:
+        pytest.skip("anlegget har ikke to innkjørsignaler med linjefelt")
+    mal["start"] = feil["id"]
+    r = anlegg.klient.post("/api/forrigling", json={"togveier": tv})
+    assert r.status_code == 400
+    assert "linjefelt" in _feil(r)
+    assert anlegg.fil("forrigling.json")["togveier"] == fr["togveier"]

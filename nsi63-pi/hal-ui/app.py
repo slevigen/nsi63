@@ -2092,6 +2092,30 @@ def _togvei_feil(togveier, fns, st_map):
         if start not in hoved:
             return (f"{tid}: startsignal '{start}' er ikke "
                     f"et hovedsignal i HAL")
+        # Startsignalet må høre til togveiens RETNING og ENDE — samme
+        # regel som kandidatlisten i UI-et (frStartKandidater). Ellers
+        # kunne et gammelt startsignal fra motsatt stasjonsende bli
+        # liggende når «fra» ble endret, og master ville åpnet det.
+        # Eldre rader uten fra/til sjekkes ikke (retningen er ukjent).
+        fra = (tv.get("fra") or "").strip()
+        til = (tv.get("til") or "").strip()
+        if fra and til:
+            fr = (felt.get(fra) or {}).get("rolle")
+            tr = (felt.get(til) or {}).get("rolle")
+            retning = ("innkjor" if (fr, tr) == ("linjefelt", "togspor")
+                       else "utkjor" if (fr, tr) == ("togspor", "linjefelt")
+                       else "indre" if (fr, tr) == ("togspor", "togspor")
+                       and fra != til else "")
+            sf = hoved[start]
+            if retning and sf.get("rolle") != retning:
+                return (f"{tid}: startsignal '{start}' har rolle "
+                        f"«{sf.get('rolle') or 'ingen'}», men togveien "
+                        f"er {retning}")
+            maal = fra if retning == "innkjor" else til
+            if (retning in ("innkjor", "utkjor") and sf.get("linjefelt")
+                    and sf.get("linjefelt") != maal):
+                return (f"{tid}: startsignal '{start}' hører til "
+                        f"linjefelt '{sf.get('linjefelt')}', ikke '{maal}'")
         for v in tv.get("sporveksler", []):
             if not isinstance(v, dict):
                 return f"{tid}: ugyldig vekselrad"

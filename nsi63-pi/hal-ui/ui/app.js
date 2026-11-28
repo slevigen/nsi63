@@ -2803,7 +2803,11 @@ function frRender() {
       tv.spor = (r === "utkjor") ? tv.fra : tv.til;
       const kand = frStartKandidater(tv);
       if (kand.length && !kand.includes(tv.start)) tv.start = kand[0];
-      if (!kand.length) tv.start = tv.start || "";
+      // Ingen kandidat: tøm startsignalet, så det cellen viser
+      // («ingen hovedsignal») også er det som lagres — og lagringen
+      // nekter til objekttabellen har et hovedsignal for enden. Før ble
+      // det gamle startsignalet stille beholdt, også fra motsatt ende.
+      if (!kand.length) tv.start = "";
     }
     if ((tv.frie || []).filter(Boolean).length === 0) {
       const a = frAutoFelt(tv);
