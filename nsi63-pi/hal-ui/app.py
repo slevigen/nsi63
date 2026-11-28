@@ -403,11 +403,17 @@ def on_message(client, userdata, msg):
     if msg.topic == ROT + "master/lampeprove/ack":   # ren tekst
         cache["lampeprove_ack"] = {"svar": text, "ts": time.time()}
         return
+    # «Hørt fra master» krever en FERSK melding. Retained ligger igjen
+    # hos brokeren etter at master døde, og kom alltid ved oppkobling —
+    # en død master så levende ut ~35 s etter omstart av app.py (og
+    # OTA-køen kunne startes mot den).
+    fersk = not msg.retain
     if msg.topic in (ROT + "master/jord", ROT + "master/signalstopp",
                      ROT + "master/testmodus",
                      ROT + "master/gjennomgang"):        # ren tekst
         cache[msg.topic.rsplit("/", 1)[1]] = text
-        cache["master_hort_ts"] = time.time()
+        if fersk:
+            cache["master_hort_ts"] = time.time()
         return
     # nsi63/togvei/<id>/info — masterens svar på betjening (ren tekst)
     if msg.topic.startswith(ROT + "togvei/") and msg.topic.endswith("/info"):
@@ -424,12 +430,14 @@ def on_message(client, userdata, msg):
         return
     if msg.topic == NODES_TOPIC:
         cache["nodes"] = payload
-        cache["master_hort_ts"] = time.time()
+        if fersk:
+            cache["master_hort_ts"] = time.time()
     elif msg.topic == MASTER_ACK_TOPIC:
         cache["master_ack"] = payload
     elif msg.topic == MASTER_INFO_TOPIC:
         cache["master_info"] = payload
-        cache["master_hort_ts"] = time.time()
+        if fersk:
+            cache["master_hort_ts"] = time.time()
     elif msg.topic == CONFLICT_TOPIC:
         cache["conflict"] = {"data": payload, "ts": time.time()}
     elif msg.topic == FORRIGLING_ACK_TOPIC:
@@ -903,42 +911,78 @@ def api_anlegg():
     return jsonify(d)
 
 
+HOSTAPD_CONF = Path("/etc/hostapd/hostapd.conf")
+# Ventetid før omstarten. hostapd-restarten kaster alle wifi-klienter —
+# også nettleseren som lagret. Med en kort pause rekker JSON-svaret
+# fram før nettet forsvinner.
+AP_OMSTART_FORSINKELSE_S = 1.5
+
+
+def _etter_svaret(jobb) -> threading.Timer:
+    """Kjør jobb i bakgrunnen litt etter at HTTP-svaret er sendt.
+
+    Egen funksjon så testene kan fange jobben og kjøre den selv."""
+    t = threading.Timer(AP_OMSTART_FORSINKELSE_S, jobb)
+    t.daemon = True
+    t.start()
+    return t
+
+
 def _oppdater_ap_og_hostname(aid: str) -> dict:
     """Døp AP-et (SSID) og Pi-ens hostname etter anleggs-ID-en.
 
     SSID = NSI63 + ID (bare NSI63 uten ID); hostname = samme i små
     bokstaver (f.eks. http://nsi63abc.local). Alt feiler mykt så UI-et
     også utenfor en ekte Pi. hostapd restartes KUN når SSID-en faktisk
-    endres — det kaster alle wifi-klienter (også nettleseren din!),
-    derfor gjøres det til slutt, etter at konfigen er publisert.
+    endres — det kaster alle wifi-klienter (også nettleseren din!).
+    Konfigen skrives her, men selve omstartene gjøres i bakgrunnen
+    ETTER svaret (_etter_svaret) — synkront ble nettleseren kastet av
+    wifi før den fikk vite om lagringen gikk bra.
     """
     ssid = "NSI63" + aid
     host = ssid.lower()
     ut = {"ssid": ssid, "hostname": host, "ap_omdopt": False}
-    conf = Path("/etc/hostapd/hostapd.conf")
+    ny_ap = False
     try:
-        txt = conf.read_text()
+        txt = HOSTAPD_CONF.read_text()
         ny = re.sub(r"(?m)^ssid=.*$", "ssid=" + ssid, txt)
         if ny != txt:
-            conf.write_text(ny)
-            subprocess.run(["systemctl", "restart", "hostapd"],
-                           timeout=15, check=False)
-            ut["ap_omdopt"] = True
-    except (OSError, subprocess.SubprocessError):
+            HOSTAPD_CONF.write_text(ny)
+            # «omdøpt» = konfigen står faktisk med ny SSID, lest tilbake —
+            # ikke bare at et kall ble forsøkt
+            ny_ap = HOSTAPD_CONF.read_text() == ny
+            ut["ap_omdopt"] = ny_ap
+    except OSError:
         pass
+    ny_host = False
     try:
         gml = subprocess.run(["hostnamectl", "--static"], timeout=5,
                              capture_output=True, text=True).stdout.strip()
-        if gml and gml != host:
-            subprocess.run(["hostnamectl", "set-hostname", host],
-                           timeout=10, check=False)
-            hosts = Path("/etc/hosts")
-            txt = hosts.read_text()
-            ny = re.sub(r"(?m)^(127\.0\.1\.1\s+).*$", r"\g<1>" + host, txt)
-            if ny != txt:
-                hosts.write_text(ny)
+        ny_host = bool(gml) and gml != host
     except (OSError, subprocess.SubprocessError):
         pass
+
+    def omstart():
+        if ny_host:
+            try:
+                subprocess.run(["hostnamectl", "set-hostname", host],
+                               timeout=10, check=False)
+                hosts = Path("/etc/hosts")
+                txt = hosts.read_text()
+                ny = re.sub(r"(?m)^(127\.0\.1\.1\s+).*$",
+                            r"\g<1>" + host, txt)
+                if ny != txt:
+                    hosts.write_text(ny)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        if ny_ap:                  # sist: den kaster wifi-klientene
+            try:
+                subprocess.run(["systemctl", "restart", "hostapd"],
+                               timeout=15, check=False)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    if ny_ap or ny_host:
+        _etter_svaret(omstart)
     return ut
 
 
@@ -1989,21 +2033,22 @@ def api_node_alias():
         return jsonify({"error": "kallenavn: bokstaver/tall/-/_ "
                                  "(maks 24 tegn)"}), 400
     data = load_hal()
+    gml_noder = data.get("noder", {})
     # Fjern evt. gammelt kallenavn for denne MAC-en, og frigjør
     # kallenavnet hvis det pekte på en annen (defekt) MAC.
-    gamle = [a for a, v in data.get("noder", {}).items()
+    gamle = [a for a, v in gml_noder.items()
              if v.get("mac") == mac and a != alias]
-    noder = {a: v for a, v in data.get("noder", {}).items()
+    noder = {a: v for a, v in gml_noder.items()
              if v.get("mac") != mac and a != alias}
-    functions = data.get("functions", [])
+    functions = copy.deepcopy(data.get("functions", []))
     if alias:
         # Alt annet som står på noden (driver-listen) følger MAC-en
         # gjennom omdøpingen. Ved bytte av defekt enhet (samme navn,
         # ny MAC) arves den fra navnet: det er KORTET som har drivere,
         # og kortet står igjen når Atomen byttes.
-        forrige = next((v for v in data.get("noder", {}).values()
+        forrige = next((v for v in gml_noder.values()
                         if v.get("mac") == mac), None) \
-            or data.get("noder", {}).get(alias) or {}
+            or gml_noder.get(alias) or {}
         noder[alias] = {**forrige, "mac": mac}
         # Skriv om eksisterende bindinger fra rå MAC OG fra nodens
         # tidligere kallenavn (omdøping skal aldri gi foreldreløse
@@ -2012,6 +2057,39 @@ def api_node_alias():
             for b in f.get("bindinger", []):
                 if b.get("node") == mac or b.get("node") in gamle:
                     b["node"] = alias
+    else:
+        # FJERNET kallenavn: bindingene som brukte det må over på rå
+        # MAC. Ellers peker de på et navn som ikke finnes lenger, og
+        # master forkaster dem i stillhet.
+        for f in functions:
+            for b in f.get("bindinger", []):
+                if b.get("node") in gamle:
+                    b["node"] = mac
+        # Driver-listen bor i kallenavnregisteret. Uten den sender
+        # master lampene med feil polaritet til nodekortet — så den
+        # beholdes under MAC-en som nøkkel (master leser alle nøkler
+        # likt, og et nytt kallenavn arver den via «forrige» over).
+        drv = sorted({_i2c_norm(a) for g in gamle
+                      for a in (gml_noder[g].get("driver") or [])})
+        if drv:
+            noder[mac] = {"mac": mac, "driver": drv}
+    # Overtar noden et kallenavn som pekte på en ANNEN MAC, slås to
+    # sett bindinger sammen på én node — det kan gi portkollisjoner.
+    # Bare NYE konflikter stopper lagringen; gamle er ikke dette
+    # kallets skyld og skal ikke låse kallenavn-redigeringen.
+    st_map = data.get("signaltyper", {})
+    for_ = set(_port_konflikter(data.get("functions", []), st_map,
+                                gml_noder))
+    nye = [k for k in _port_konflikter(functions, st_map, noder)
+           if k not in for_]
+    if nye:
+        return jsonify({"error": "Portkonflikt: " + " · ".join(nye)}), 400
+    # Rå MAC er lengre enn et kallenavn: konfigen kan vokse ut av
+    # masterens buffer når et navn fjernes
+    prove = dict(data); prove["functions"] = functions; prove["noder"] = noder
+    stor = _for_stor(prove, "Objektkonfigurasjonen")
+    if stor:
+        return jsonify({"error": stor}), 400
     data = save_hal(functions=functions, noder=noder)
     return jsonify({"ok": True, "version": data["version"]})
 

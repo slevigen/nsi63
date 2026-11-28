@@ -119,8 +119,10 @@
   /* Samme sidemargin som kortene under, så apparatet står i flukt
      med dem — det er bare boksen som er borte, ikke plasseringen. */
   #planholder { margin: 10px 12px; }
+  /* manipulation: ingen dobbelttrykk-zoom og ingen 300 ms ventetid på
+     berøringsskjerm — knappene på planen skal svare med en gang */
   #plansvg { width: 100%; height: auto; display: block;
-             border-radius: 8px; }
+             border-radius: 8px; touch-action: manipulation; }
   /* Linsen har TO farger, og den slukkede er valgt for seg — den
      regnes ikke ut av den tente. Blandingen som sto her før virket
      for alle kulører unntatt gul: mørk oransjegul ER brun, uansett
@@ -259,6 +261,20 @@ const BSUTSLAG = 25, BSKNOTT = 8;
 // det i morgen. Da kan denne endres uten å røre stillerne.
 const BSKNAPP = BSKNOTT;
 const BSKNAPPINN = 2;   // hvor mye knappen synker mens den trykkes
+// Usynlig trykkflate rundt Jord og Sign.stp. (r=8 er for lite for en
+// finger). Holdes under avstanden til kontrollampa mellom knappene
+// (knDx - 6 = 51), så et trykk der aldri havner på feil knapp.
+const BSKNAPPTREFF = 20;
+// Konfigdata (id, navn, rolle) inn i markup. Et navn som «S.lås I & II»
+// eller med apostrof skal ikke brekke sporplanen eller onclick-strengen.
+// escH: HTML-tekst og attributtverdier. escJs: strengargument i
+// onclick="f('…')" — JS-escape først, så HTML-escape (nettleseren
+// dekoder attributtet før JS-en tolkes).
+const escH = v => String(v ?? "").replace(/[&<>"']/g, c => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+})[c]);
+const escJs = v => escH(String(v ?? "").replace(/\\/g, "\\\\")
+  .replace(/'/g, "\\'"));
 // Hvor langt sporet trekkes INN fra knottens ytterkant i hver ende.
 // Knotten dekker da enden av sporet i endestillingen i stedet for å
 // stå flukt med den. Med innrykk lik knottradien er sporet nøyaktig
@@ -576,12 +592,12 @@ function bygg() {
   h += `<section class="sim"><h2>Sporfelt <span class="hint">simuleringsknappene
     overstyrer sensorene — «Sensor» gir dem tilbake</span></h2>`;
   for (const f of felt) {
-    h += `<div class="rad"><span class="litra">${f.id}</span>
-      <span class="hint" style="min-width:82px">${f.rolle || ""}</span>
-      <span class="st" data-b="sporfelt/${f.id}/state">–</span>
-      <button onclick="pub('sporfelt/${f.id}/sim','belagt')">Belagt</button>
-      <button onclick="pub('sporfelt/${f.id}/sim','fri')">Fritt</button>
-      <button onclick="pub('sporfelt/${f.id}/sim','av')"
+    h += `<div class="rad"><span class="litra">${escH(f.id)}</span>
+      <span class="hint" style="min-width:82px">${escH(f.rolle)}</span>
+      <span class="st" data-b="sporfelt/${escH(f.id)}/state">–</span>
+      <button onclick="pub('sporfelt/${escJs(f.id)}/sim','belagt')">Belagt</button>
+      <button onclick="pub('sporfelt/${escJs(f.id)}/sim','fri')">Fritt</button>
+      <button onclick="pub('sporfelt/${escJs(f.id)}/sim','av')"
         title="Slipp simuleringen — sensorene rår igjen">Sensor</button>
       </div>`;
     bindSt(`sporfelt/${f.id}/state`, v => v === "belagt" ? "roed" : "ledig");
@@ -635,7 +651,7 @@ function bygg() {
     const ph = document.getElementById("planholder");
     if (ph) ph.innerHTML =
       `<span class="hint">sporplanen kunne ikke komponeres: ` +
-      `${e.message} — tekstflaten under gjelder</span>`;
+      `${escH(e.message)} — tekstflaten under gjelder</span>`;
   }
   tegnKontroll();
   // Re-spill kjente tilstander inn i den nye flaten
@@ -649,7 +665,8 @@ function bygg() {
 /* bind: koble et tema til alle elementer med data-b=tema */
 function bind(tema, fn) {
   (BIND[tema] = BIND[tema] || []).push(pl => {
-    document.querySelectorAll(`[data-b="${tema}"]`)
+    // CSS.escape: temaet kan inneholde konfig-id-er med fnutter
+    document.querySelectorAll(`[data-b="${CSS.escape(tema)}"]`)
       .forEach(el => fn(pl, el));
   });
 }
@@ -685,7 +702,7 @@ const pbl = {
   linje: (x, y) => `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>`,
   linjeLampe: (x, y, id, farge) =>
     pbl.linje(x, y) +
-    `<circle id="${id}" class="pl" style="${lampeStil(farge)}" ` +
+    `<circle id="${escH(id)}" class="pl" style="${lampeStil(farge)}" ` +
     `cx="${x+50}" cy="${y+SY}" r="6"/>`,
   // Linjefelt-ende: sporet ut til kanten, feltlampe + blå togveislampe.
   // Litraen skrives PÅ sporbåndet ved siden av lampa (innsiden).
@@ -696,13 +713,13 @@ const pbl = {
     const lx = side === "v" ? x + 45 : x + 55;
     const txt = !litra ? ""
       : side === "v"
-      ? `<text class="pltekst" x="${lx + 12}" y="${y+SY+4}">${litra}</text>`
+      ? `<text class="pltekst" x="${lx + 12}" y="${y+SY+4}">${escH(litra)}</text>`
       : `<text class="pltekst" text-anchor="end" x="${lx - 12}" ` +
-        `y="${y+SY+4}">${litra}</text>`;
+        `y="${y+SY+4}">${escH(litra)}</text>`;
     return `<path class="plspor" d="${sp}"/>` +
-      `<circle id="${idL}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="${escH(idL)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${lx}" cy="${y+SY}" r="6"/>` +
-      `<circle id="${idTv}" class="pl" style="${lampeStil('#1f8fff')}" ` +
+      `<circle id="${escH(idTv)}" class="pl" style="${lampeStil('#1f8fff')}" ` +
       `cx="${lx}" cy="${y+SY+16}" r="6"/>` + txt;
   },
   // Halsveksel: rett spor + avvik som diagonal til øvre modulhjørne
@@ -713,14 +730,14 @@ const pbl = {
       ? `M${x+30},${y+SY} L${x+MW},${y}` : `M${x+70},${y+SY} L${x},${y}`;
     const nx = side === "v" ? x + 15 : x + 85;
     const ax = side === "v" ? x + 62 : x + 38;
-    return `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+    return `<g class="plklikk" onclick="plVeksel('${escJs(litra)}')">` +
       `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
       `<path class="plspor" d="${d}"/>` +
-      `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-vn-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${nx}" cy="${y+SY}" r="6"/>` +
-      `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-va-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${ax}" cy="${y+SY-14}" r="6"/>` +
-      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
+      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${escH(litra)}</text></g>`;
   },
   // Innføring: mottar halsvekselens diagonal i nedre hjørne og
   // legger den inn på radens sporlinje. side='v': fra nede-venstre.
@@ -737,21 +754,21 @@ const pbl = {
     const gy = opp ? y + 6 : y + MH - 6;
     const gx = side === "h" ? x + 78 : x + 22;
     const fra = side === "h" ? x + 46 : x + 54;
-    return `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+    return `<g class="plklikk" onclick="plVeksel('${escJs(litra)}')">` +
       `<path class="plspor" d="M${x},${y+SY} H${x+MW}"/>` +
       `<path class="plspor" d="M${fra},${y+SY} L${gx},${gy} ` +
       `m${side==="h"?-4:4},${opp?-3:3} l8,6"/>` +
-      `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-vn-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${x+(side==="h"?26:74)}" cy="${y+SY}" r="6"/>` +
-      `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-va-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${(fra+gx)/2}" cy="${(y+SY+gy)/2}" r="6"/>` +
-      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${litra}</text></g>`;
+      `<text class="pltekst" x="${x+44}" y="${y+SY+18}">${escH(litra)}</text></g>`;
   },
   // Sporsperre: strek VINKELRETT på sporbåndet den står over
   // (ux,uy = båndets retning; navnet bæres av rigel-etiketten)
   sperre: (px, py, id, ux = 1, uy = 0) => {
     const nx = -uy, ny = ux;   // normalen til båndet
-    return `<g class="plklikk" onclick="plSperre('${id}')">` +
+    return `<g class="plklikk" onclick="plSperre('${escJs(id)}')">` +
       `<path d="M${px - nx * 13},${py - ny * 13} ` +
       `L${px + nx * 13},${py + ny * 13}" fill="none" ` +
       `stroke="#33363a" stroke-width="7" stroke-linecap="butt"/>` +
@@ -767,14 +784,14 @@ const pbl = {
   noekkelfelt: (px, py, id, navn) =>
     `<g><rect x="${px}" y="${py}" width="22" height="22" ` +
     `fill="#8d9094" stroke="#33363a" stroke-width="1"/>` +
-    `<circle id="pl-sl-${id}" class="pl" style="${lampeStil('#ffb400')}" ` +
+    `<circle id="pl-sl-${escH(id)}" class="pl" style="${lampeStil('#ffb400')}" ` +
     `cx="${px+11}" cy="${py+11}" r="6"/>` +
-    `<text class="plnavn" x="${px+27}" y="${py+15}">${navn}</text></g>`,
+    `<text class="plnavn" x="${px+27}" y="${py+15}">${escH(navn)}</text></g>`,
   // Rigel-etikett med kontrollampe (ved sperresymbolet, som fotoet)
   rigel: (px, py, id, navn) =>
-    `<g><circle id="pl-ri-${id}" class="pl" style="${lampeStil('#ffb400')}" ` +
+    `<g><circle id="pl-ri-${escH(id)}" class="pl" style="${lampeStil('#ffb400')}" ` +
     `cx="${px}" cy="${py}" r="6"/>` +
-    `<text class="plnavn" x="${px+9}" y="${py+4}">${navn}</text></g>`,
+    `<text class="plnavn" x="${px+9}" y="${py+4}">${escH(navn)}</text></g>`,
 };
 
 // LAGRE SOM SVG: frittstående fil av sporplanen med ALLE lamper
@@ -1343,8 +1360,10 @@ function byggPlan(fns) {
   // grunnlinjens kolonner: [ende][linjefelt][kjederøtter ... midt]
   const cV = 2;
   gaaKjede(hals.v || rot.v[0], 0, cV);
+  // ekstra vestrøtter må også gå kjeden sin (som østsiden) — ellers
+  // blir vekslene bak dem aldri plassert eller tegnet
   rot.v.forEach((l, i) => { if (l !== (hals.v || rot.v[0]))
-    settPos(l, 0, cV + 1 + i); });
+    gaaKjede(l, 0, cV + 1 + i); });
   // østsiden: regn ut nødvendig bredde av vestkjeden først
   let maksX = cV;
   for (const v of Object.values(vx))
@@ -1495,12 +1514,12 @@ function byggPlan(fns) {
     // bare lagt vannrett: dette ER samme slags stiller, den ligger
     // bare på planen og legges til sidene i stedet for ned.
     const ytre = BSUTSLAG + BSKNOTT;
-    return `<g class="pltvs" id="pl-tvs-${litra}">` +
+    return `<g class="pltvs" id="pl-tvs-${escH(litra)}">` +
       bsSpor(xm, yv, true) +
       `<rect x="${xm - ytre}" y="${yv - 14}" width="${ytre}" height="28" ` +
-      `fill="transparent" onclick="plDytt('${litra}','v')"/>` +
+      `fill="transparent" onclick="plDytt('${escJs(litra)}','v')"/>` +
       `<rect x="${xm}" y="${yv - 14}" width="${ytre}" height="28" ` +
-      `fill="transparent" onclick="plDytt('${litra}','h')"/>` +
+      `fill="transparent" onclick="plDytt('${escJs(litra)}','h')"/>` +
       `<circle class="knott" cx="${xm}" cy="${yv}" r="${BSKNOTT}" ` +
       `pointer-events="none"/>` +
       // Merkingen OVER båndet, ikke ved siden av stilleren: sporet
@@ -1509,9 +1528,9 @@ function byggPlan(fns) {
       // ved sin egen side av stilleren.
       (vT ? `<text class="plnavn" text-anchor="end" ` +
             `pointer-events="none" x="${xm - 6}" y="${yv - 12}">` +
-            `${vT}</text>` : "") +
+            `${escH(vT)}</text>` : "") +
       (hT ? `<text class="plnavn" pointer-events="none" ` +
-            `x="${xm + 6}" y="${yv - 12}">${hT}</text>` : "") +
+            `x="${xm + 6}" y="${yv - 12}">${escH(hT)}</text>` : "") +
       `</g>`;
   };
   // LINJEFELTENE tegnes som togsporene: to lamper med litra på
@@ -1532,9 +1551,9 @@ function byggPlan(fns) {
     const xu = o + (i - o) * 0.22, xi = i - (i - o) * 0.22;
     const xm = (o + i) / 2;
     const t = (x, mot) => mot > 0
-      ? `<text class="pltekst" x="${x + 12}" y="${yv + 4}">${vn(f)}</text>`
+      ? `<text class="pltekst" x="${x + 12}" y="${yv + 4}">${escH(vn(f))}</text>`
       : `<text class="pltekst" text-anchor="end" x="${x - 12}" ` +
-        `y="${yv + 4}">${vn(f)}</text>`;
+        `y="${yv + 4}">${escH(vn(f))}</text>`;
     // hva den sorte knappen ved DETTE linjefeltet omfatter — utledet
     // av konfig: feltets varselfelt + togveiene som går over feltet
     PLK[f.id] = {
@@ -1546,9 +1565,9 @@ function byggPlan(fns) {
     // togveilampe og sort trykknapp tegnes ETTER mastene
     // (kollisjonssjekk mot dem) — her noteres bare ønsket plass
     knapper.push({ lf: f.id, xm, o, i, linjeblokk: !!f.linjeblokk });
-    return `<circle id="pl-fl-${f.id}" class="pl" style="${lampeStil('#ffb400')}" ` +
+    return `<circle id="pl-fl-${escH(f.id)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xu}" cy="${yv}" r="6"/>` + t(xu, d) +
-      `<circle id="pl-fl-${f.id}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-fl-${escH(f.id)}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xi}" cy="${yv}" r="6"/>` + t(xi, -d) +
       stillerSym(f.id, xm, yv) +
       // (blå togveilampe + sort trykknapp tegnes ETTER mastene, i
@@ -1620,13 +1639,13 @@ function byggPlan(fns) {
     const gV = grenseV(rad, m0, "v"), gH = grenseV(rad, m0, "h");
     return (gV ? skille(X(vx[gV].pos.x) + skAvst(gV, false), rad) : "") +
       (gH ? skille(X(vx[gH].pos.x) - skAvst(gH, true), rad) : "") +
-      `<circle id="pl-fl-${sid}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<circle id="pl-fl-${escH(sid)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xa}" cy="${yv}" r="6"/>` +
-      `<text class="pltekst" x="${xa + 12}" y="${yv + 4}">${sid}</text>` +
-      `<circle id="pl-fl-${sid}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
+      `<text class="pltekst" x="${xa + 12}" y="${yv + 4}">${escH(sid)}</text>` +
+      `<circle id="pl-fl-${escH(sid)}-b" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${xb}" cy="${yv}" r="6"/>` +
       `<text class="pltekst" text-anchor="end" x="${xb - 12}" ` +
-      `y="${yv + 4}">${sid}</text>` +
+      `y="${yv + 4}">${escH(sid)}</text>` +
       stillerSym(sid, xm, yv);
   };
   s += tegnTogspor(togspor[0], 0);
@@ -1650,11 +1669,11 @@ function byggPlan(fns) {
     }
     const harLampe = (feltAv[sid] || {}).rolle !== "spor";
     if (harLampe)
-      s += `<circle id="pl-fl-${sid}" class="pl" style="${lampeStil('#ffb400')}" ` +
+      s += `<circle id="pl-fl-${escH(sid)}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${X((x1 + x2) / 2)}" cy="${Y(rad)}" r="6"/>`;
     // spornummer SENTRERT på sporet i x-retningen, over båndet
     s += `<text class="pltekst" text-anchor="middle" ` +
-      `x="${X((x1 + x2) / 2)}" y="${Y(rad) - 12}">${sid}</text>`;
+      `x="${X((x1 + x2) / 2)}" y="${Y(rad) - 12}">${escH(sid)}</text>`;
   }
   /* kantene (diagonalene) */
   // Diagonalene tegnes i 45°: skrå del først (ut fra vekselpunktet),
@@ -1737,12 +1756,12 @@ function byggPlan(fns) {
         if ((t.sporveksler || []).some(v => v.sporveksel === litra) &&
             t.utlosningsfelt) { vFeltAv[litra] = t.utlosningsfelt; break; }
       lamper =
-        `<circle id="pl-vn-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+        `<circle id="pl-vn-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${px + pd * 22}" cy="${py}" r="6"/>` +
-        `<circle id="pl-va-${litra}" class="pl" style="${lampeStil('#ffb400')}" ` +
+        `<circle id="pl-va-${escH(litra)}" class="pl" style="${lampeStil('#ffb400')}" ` +
         `cx="${px + mx * 26}" cy="${py + my * 26}" r="6"/>` +
         (vFeltAv[litra]
-          ? `<circle id="pl-vfb-${litra}" class="pl" ` +
+          ? `<circle id="pl-vfb-${escH(litra)}" class="pl" ` +
             `style="${lampeStil('#ffb400')}" cx="${px}" cy="${py}" r="6"/>`
           : ``);
     }
@@ -1750,12 +1769,12 @@ function byggPlan(fns) {
     const opptatt = vKvad[litra] || new Set();
     const q = [[-1, 1], [1, 1], [-1, -1], [1, -1]]
       .find(([qx, qy]) => !opptatt.has(qx + "," + qy)) || [1, 1];
-    s += `<g class="plklikk" onclick="plVeksel('${litra}')">` +
+    s += `<g class="plklikk" onclick="plVeksel('${escJs(litra)}')">` +
       `<circle cx="${px}" cy="${py}" r="16" fill="transparent"/>` +
       lamper +
       `<text class="pltekst"${q[0] > 0 ? "" : ' text-anchor="end"'} ` +
       `x="${px + q[0] * 6}" y="${py + (q[1] > 0 ? 20 : -14)}">` +
-      `${litra}</text></g>`;
+      `${escH(litra)}</text></g>`;
   }
   if (togspor.length > 2)
     s += `<text class="pltekst" x="8" y="14">NB: flere togspor enn to
@@ -1774,11 +1793,11 @@ function byggPlan(fns) {
     const base = side === "v" ? X(0) : nCol * MW;
     const d = side === "v" ? 1 : -1;      // +1 = innover mot øst
     const px = base - d * 150;
-    s += `<circle id="pl-vfl-${vf.id}" class="pl" style="${lampeStil('#ffb400')}" ` +
+    s += `<circle id="pl-vfl-${escH(vf.id)}" class="pl" style="${lampeStil('#ffb400')}" ` +
       `cx="${px}" cy="${Y(0)}" r="6"/>` +
       // litra UTENFOR båndet, sentrert over lampa
       `<text class="pltekst" text-anchor="middle" x="${px}" ` +
-      `y="${Y(0) - 12}">${vn(vf)}</text>` +
+      `y="${Y(0) - 12}">${escH(vn(vf))}</text>` +
       skille(px - d * 14) + skille(px + d * 14);
   }
   const sigKl = f => (K.hal.signaltyper[f.type] || {}).klasse ||
@@ -1988,11 +2007,11 @@ function byggPlan(fns) {
         // 7.2.1). SVG har y nedover, så det er rotate(+45); -45 ga «\».
         const rot = l.form === "strek42"
           ? ` transform="rotate(45 ${cx} ${m.py})"` : "";
-        c = `<rect${l.id ? ` id="${l.id}"` : ""} class="pl" ` +
+        c = `<rect${l.id ? ` id="${escH(l.id)}"` : ""} class="pl" ` +
           `style="${lampeStil(l.farge)}" x="${cx - 2}" y="${m.py - 6}" ` +
           `width="4" height="12" rx="1.5"${rot}/>`;
       } else {
-        c = `<circle${l.id ? ` id="${l.id}"` : ""} class="pl"` +
+        c = `<circle${l.id ? ` id="${escH(l.id)}"` : ""} class="pl"` +
           ` style="${lampeStil(l.farge)}" cx="${cx}" cy="${m.py}" r="6"/>`;
       }
       lamper += c;
@@ -2006,7 +2025,7 @@ function byggPlan(fns) {
       const ty = (m.tekstOver !== undefined ? m.tekstOver : m.over)
         ? m.py - 14 : m.py + 24;                   // alltid utsiden
       deltekst += `<text class="pltekst" text-anchor="middle" ` +
-        `x="${(x1 + x2) / 2}" y="${ty}">${d.navn}</text>`;
+        `x="${(x1 + x2) / 2}" y="${ty}">${escH(d.navn)}</text>`;
       li += d.farger.length;
     }
     s += `<g>${hus}${lamper}${deltekst}</g>`;
@@ -2036,11 +2055,11 @@ function byggPlan(fns) {
         if (!inne(a) && !inne(b2)) break;   // ingen fri plass: xm
       }
     }
-    s += `<circle id="pl-tv-${k.lf}" class="pl" style="${lampeStil('#1f8fff')}" ` +
+    s += `<circle id="pl-tv-${escH(k.lf)}" class="pl" style="${lampeStil('#1f8fff')}" ` +
       `cx="${kx}" cy="${ly}" r="6"/>`;
     if (medKnapp)
-      s += `<g class="plknapp" id="pl-kn-${k.lf}" ` +
-        `onclick="plKnapp('${k.lf}')">` +
+      s += `<g class="plknapp" id="pl-kn-${escH(k.lf)}" ` +
+        `onclick="plKnapp('${escJs(k.lf)}')">` +
         `<rect x="${kx - 12}" y="${ky - 12}" width="24" height="24" ` +
         `fill="transparent"/>` +
         `<circle class="knhode" cx="${kx}" cy="${ky}" r="${BSKNAPP}"/></g>`;
@@ -2379,7 +2398,7 @@ function byggPlan(fns) {
       y += hoyder[i];
       return `<text class="bsskilt"` +
         (fs === BSSKRIFT ? "" : ` style="font-size:${fs}px"`) +
-        ` x="${cx}" y="${base}">${l}</text>`;
+        ` x="${cx}" y="${base}">${escH(l)}</text>`;
     }).join("");
     return `<rect class="bsplate" x="${cx - w / 2}" y="${cy - h / 2}" ` +
       `width="${w}" height="${h}" rx="3"/>` + tekst;
@@ -2515,7 +2534,7 @@ function byggPlan(fns) {
   };
   const bsTegn = (it, cx) => {
     if (it.lampe)
-      s += `<circle id="bs-la-${it.slag}" class="pl" ` +
+      s += `<circle id="bs-la-${escH(it.slag)}" class="pl" ` +
         `style="${lampeStil(it.lampe)}" cx="${cx}" ` +
         `cy="${bsCy - BSUTSLAG - BSKNOTT - 14}" r="6"/>`;
     s += `<g class="bs">` +
@@ -2539,15 +2558,15 @@ function byggPlan(fns) {
       bsSpor(cx, bsCy, false) +
       // Tegnes i NORMALSTILLING: rett ut, altså midt i sporet.
       // bsSett legger den ned når objektet er aktivert.
-      `<circle id="bs-kn-${it.slag}-${it.id}" class="bskn" ` +
+      `<circle id="bs-kn-${escH(it.slag)}-${escH(it.id)}" class="bskn" ` +
       `cx="${cx}" cy="${bsCy}" r="${BSKNOTT}" fill="${it.farge}" ` +
       `stroke="#33363a" stroke-width="1" pointer-events="none"/>` +
       `<rect x="${cx - 15}" y="${bsCy - 26}" width="30" height="26" ` +
       `fill="transparent" ` +
-      `onclick="bsDytt('${it.slag}','${it.id}','opp')"/>` +
+      `onclick="bsDytt('${escJs(it.slag)}','${escJs(it.id)}','opp')"/>` +
       `<rect x="${cx - 15}" y="${bsCy}" width="30" height="26" ` +
       `fill="transparent" ` +
-      `onclick="bsDytt('${it.slag}','${it.id}','ned')"/>` +
+      `onclick="bsDytt('${escJs(it.slag)}','${escJs(it.id)}','ned')"/>` +
       // Nedre skilt står i samme høyde for ALLE stillerne, så platene
       // danner en rad tvers over apparatet.
       bsSkilt(cx, bsSkiltCy, BSSKILT, BSSKILT,
@@ -2583,13 +2602,23 @@ function byggPlan(fns) {
     // står rett over målerens kant, så raden og instrumentet under
     // har samme bredde. Da er ikke tallet valgt på slump, og det
     // følger med om måleren endrer størrelse.
-    `<g class="bs"><circle id="bs-knapp-jord" cx="${bsMidt - knDx}" ` +
+    //
+    // Knappen er bare r=8 og vanskelig å treffe med en finger. Den
+    // usynlige treffsirkelen (BSKNAPPTREFF) tar trykket; selve knappen
+    // er pointer-events="none" så bsKnappTrykk kan krympe den uten at
+    // trykkflaten krymper med. Lampa i midten og stillerrasteret
+    // (BSMIDTLUFT ut) ligger utenfor, så nabotrykk ikke fanges.
+    `<g class="bs"><circle cx="${bsMidt - knDx}" cy="${knCy}" ` +
+    `r="${BSKNAPPTREFF}" fill="transparent" onclick="bsJord()"/>` +
+    `<circle id="bs-knapp-jord" cx="${bsMidt - knDx}" ` +
     `cy="${knCy}" r="${BSKNAPP}" fill="#111" stroke="#33363a" ` +
-    `stroke-width="1" onclick="bsJord()"/>` +
+    `stroke-width="1" pointer-events="none"/>` +
     bsSkilt(bsMidt - knDx, knCy + 26, 56, 26, "Jord") + `</g>` +
-    `<g class="bs"><circle id="bs-knapp-stopp" cx="${bsMidt + knDx}" ` +
+    `<g class="bs"><circle cx="${bsMidt + knDx}" cy="${knCy}" ` +
+    `r="${BSKNAPPTREFF}" fill="transparent" onclick="bsStopp()"/>` +
+    `<circle id="bs-knapp-stopp" cx="${bsMidt + knDx}" ` +
     `cy="${knCy}" r="${BSKNAPP}" fill="#c9342a" stroke="#33363a" ` +
-    `stroke-width="1" onclick="bsStopp()"/>` +
+    `stroke-width="1" pointer-events="none"/>` +
     bsSkilt(bsMidt + knDx, knCy + 26, 56, 26, "Sign.stp.") + `</g>` +
     // amperemeteret er selvforklarende og har intet skilt
     ampMaaler(bsMidt, ampCy, AMPBREDDE);

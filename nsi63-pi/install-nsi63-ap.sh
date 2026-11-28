@@ -114,8 +114,31 @@ cat > /etc/NetworkManager/conf.d/99-unmanaged-wlan0.conf <<EOF
 unmanaged-devices=interface-name:wlan0
 EOF
 # Relast NM straks - uten denne kjemper NM om wlan0 helt til reboot
-# (skriptet anbefaler reboot uansett, men beltet koster ingenting)
-systemctl reload NetworkManager 2>/dev/null || true
+# (skriptet anbefaler reboot uansett, men beltet koster ingenting).
+# MEN ikke når en SSH-økt går over wlan0: da slipper NM wifi-
+# forbindelsen den står på, økta dør, og skriptet stopper før
+# hostapd/dnsmasq er slått på (verken klient-wifi eller AP etter
+# reboot). Rebooten tar det uansett.
+#
+# SSH_CONNECTION kan ikke brukes: sudo (env_reset) stripper den, og
+# under «set -u» krasjet en usatt variabel skriptet (container/CI,
+# lokal konsoll). Spør i stedet kjernen: går en etablert SSH-
+# forbindelse til en av wlan0s adresser?
+ssh_over_wlan0() {
+  local ip lokal
+  for ip in $(ip -4 -o addr show dev wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1); do
+    for lokal in $(ss -tnH state established '( sport = :22 )' 2>/dev/null \
+                     | awk '{print $3}'); do
+      [ "${lokal%:*}" = "$ip" ] && return 0
+    done
+  done
+  return 1
+}
+if ssh_over_wlan0; then
+  echo "  (SSH over wlan0 - NetworkManager relastes ved reboot i stedet)"
+else
+  systemctl reload NetworkManager 2>/dev/null || true
+fi
 # Fjern gamle profiler/konfig fra tutela-tiden (ufarlig om alt er borte)
 nmcli connection delete tutela-ap 2>/dev/null || true
 rm -f /etc/dnsmasq.d/tutela.conf

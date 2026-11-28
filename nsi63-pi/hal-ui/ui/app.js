@@ -123,17 +123,32 @@ const isSkift = t => sigKlasse(t) === "skiftesignal";
 // ville kjørt vilkårlig skript i konfigverktøyet. Serversiden avviser
 // riktignok en del tegn i litra, men notater og kallenavn er frie, og
 // en importert backup kan inneholde hva som helst.
+// Escaper også ' — så den er trygg i enkeltfnutt-attributter og som
+// tekstinnhold. Brukes som felles HTML-escape.
 function attr(v) {
   return String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
     .replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+// JS-strengargument inne i et onclick-attributt. attr() alene holder
+// ikke: nettleseren dekoder &#39; tilbake til ' FØR skriptet tolkes,
+// så en ' i litraen ville brutt ut av strengen. JSON gir en gyldig
+// JS-streng, attr() gjør den trygg i attributtet.
+function jsArg(v) {
+  return attr(JSON.stringify(String(v == null ? "" : v)));
+}
+// Verdi og tekst escapes: kallenavn og litra er brukerdata
 function opt(v, t, sel) {
-  return `<option value="${v}" ${v===sel?"selected":""}>${t}</option>`;
+  return `<option value="${attr(v)}" ${v===sel?"selected":""}>` +
+         `${attr(t)}</option>`;
 }
 let NODER = {};   // kallenavn -> {mac}
 function aliasFor(mac) {
-  for (const [a, v] of Object.entries(NODER)) if (v.mac === mac) return a;
+  // En oppføring med MAC-en selv som nøkkel er ikke et kallenavn: den
+  // bærer bare driver-lista når kallenavnet er fjernet (api_node_alias)
+  for (const [a, v] of Object.entries(NODER))
+    if (v.mac === mac) return a === mac ? null : a;
   return null;
 }
 // Merk: statusen står som ETT tegn, ikke som «(aldri sett)» i
@@ -154,7 +169,7 @@ function nodeOptions(sel, allowEmpty) {
     if (seen.has(n.mac)) continue;
     out += opt(n.mac, n.mac + (n.online ? "" : " ⊘"), sel);
   }
-  if (sel && !out.includes(`value="${sel}"`)) out += opt(sel, sel + " ?", sel);
+  if (sel && !out.includes(`value="${attr(sel)}"`)) out += opt(sel, sel + " ?", sel);
   return out;
 }
 function portCount(addr) {
@@ -275,7 +290,7 @@ function fillHovedSel(sel) {
     const id = tr.querySelector(".f-id").value.trim();
     if (id) out += opt(id, id, cur);
   }
-  if (cur && !out.includes(`value="${cur}"`))
+  if (cur && !out.includes(`value="${attr(cur)}"`))
     out += opt(cur, `${cur} (ukjent)`, cur);
   sel.innerHTML = out;
   sel.value = cur;
@@ -993,7 +1008,7 @@ function fillLinjeSel(sel) {   // nedtrekk over linjefelt-litraer
     const id = tr.querySelector(".f-id").value.trim();
     if (id) out += opt(id, id, cur);
   }
-  if (cur && !out.includes(`value="${cur}"`))
+  if (cur && !out.includes(`value="${attr(cur)}"`))
     out += opt(cur, cur + " (ukjent)", cur);
   sel.innerHTML = out;
   sel.value = cur;
@@ -1028,14 +1043,17 @@ function skiftVekselBoks(tr, gruppe) {
     vist.add(id);
     out += `<label style="margin-right:8px;white-space:nowrap">` +
            `<input type="checkbox" class="f-skiftv" value="${attr(id)}" ` +
-           `${valgt.has(id) ? "checked" : ""}>${id}</label>`;
+           `${valgt.has(id) ? "checked" : ""}>${attr(id)}</label>`;
   }
   // Alt som ALT er valgt, men ikke hører hjemme i utvalget over, vises
   // likevel — avkrysset og merket. Uten dette ville en konfig som
   // inneholder en lokalstilt veksel på et skiftesignal bli avvist av
   // valideringen UTEN at raden ga noen måte å fjerne den på: feilen
   // ville vært synlig og uopprettelig på samme tid.
-  for (const id of valgt) {
+  // Ikke for samlelås/rigel: der er alt utenfor utvalget objekter
+  // utenfor anlegget, og de står i fritekstfeltet (utenforAnlegget).
+  // Vist begge steder ville samme litra bli samlet inn to ganger.
+  for (const id of (gruppe ? [] : valgt)) {
     if (vist.has(id)) continue;
     out += `<label style="margin-right:8px;white-space:nowrap;` +
            `color:var(--warn,#e0c23c)" ` +
@@ -1043,7 +1061,7 @@ function skiftVekselBoks(tr, gruppe) {
            `Enten er objektet slettet, eller det er en lokalstilt ` +
            `veksel, som et høyt skiftesignal ikke kan følge.">` +
            `<input type="checkbox" class="f-skiftv" value="${attr(id)}" ` +
-           `checked>${id} ⚠</label>`;
+           `checked>${attr(id)} ⚠</label>`;
   }
   if (out) return out;
   return `<span class="hint">${gruppe
@@ -1081,7 +1099,7 @@ function fillTopoSel(sel) {
     if (isNoenVeksel(rt))   // begge tegnes på sporplanen
       out += opt(`veksel ${id}`, `veksel ${id}`, cur);
   }
-  if (cur && !out.includes(`value="${cur}"`))
+  if (cur && !out.includes(`value="${attr(cur)}"`))
     out += opt(cur, cur + " (ukjent)", cur);
   sel.innerHTML = out;
   sel.value = cur;
@@ -1375,6 +1393,12 @@ async function apiJson(r) {
 }
 async function save() {
   const msg = document.getElementById("msg");
+  // Litraene som SENDES, per rad — etter lagring er de radenes nye
+  // original-litra. Uten dette beholder en ny rad orgId="" og en
+  // senere omdøping uten reload sendte ikke gammel_id, så togveier og
+  // montert_med ble hengende igjen på det gamle navnet.
+  const sendt = [...document.querySelectorAll("#tbl tbody tr.fnrow")]
+    .map(tr => [tr, tr.querySelector(".f-id").value.trim()]);
   const r = await fetch("/api/hal", {method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({functions: collect()})});
@@ -1383,7 +1407,8 @@ async function save() {
                 (j.omdopt ? ` · ${j.omdopt} litra omdøpt, ` +
                             `${j.referanser} referanser fulgte med` : ``);
               msg.className = "ok";
-              if (j.omdopt) await loadAll();   // orgId-sporene friskes
+              for (const [tr, id] of sendt) tr.dataset.orgId = id;
+              if (j.omdopt) await loadAll();   // referansene er skrevet om
               pollAck(j.version); }
   else { msg.textContent = j.error; msg.className = "err"; }
 }
@@ -1783,8 +1808,8 @@ function kbRender() {
           : "";
         h += `<div class="kb-celle ${kls}"` +
              ` title="port ${p}: ${attr(tips)}"` +
-             ` onclick="kbGaaTil('${attr(x0.litra)}',` +
-             `'${attr(x0.type)}')">` +
+             ` onclick="kbGaaTil(${jsArg(x0.litra)},` +
+             `${jsArg(x0.type)})">` +
              `<span class="kb-nr">${p}</span>` +
              `<span class="kb-sym"${symStil}>${sym}</span>` +
              `<span class="kb-lit">${attr(x0.litra)}</span>` +
@@ -1886,6 +1911,20 @@ function fmtSek(s) {
   if (t) return t + "t " + m + "m";
   return m + "m";
 }
+// Ulagrede endringer i anleggs-/tidslåskortet. Fanen tegnes på nytt
+// hvert 3. s, og fokus-sjekken alene holdt ikke: en avkrysset boks
+// eller et endret felt ble overskrevet så snart fokus gikk bort, før
+// «Lagre». Mens kortene er skitne, beholdes DOM-en deres som den er.
+let anleggSkitten = false;
+function merkAnleggSkitten(ev) {
+  if (ev.target.closest("#kort-anlegg, #kort-tider")) anleggSkitten = true;
+}
+document.addEventListener("input", merkAnleggSkitten);
+document.addEventListener("change", merkAnleggSkitten);
+function forkastAnlegg() {
+  anleggSkitten = false;
+  renderNoder();
+}
 async function renderNoder() {
   // Fanen tegnes på nytt hvert 3. sekund; en åpnet kopiliste skal ikke
   // klappe sammen under brukeren
@@ -1909,7 +1948,7 @@ async function renderNoder() {
   if (master.conflict) {
     html += `<div class="card" style="border-color:var(--warn)">
       <h2><span class="off">⚠ TO MASTERE AKTIVE</span></h2>
-      <p>«${master.conflict.self}» og «${master.conflict.other}» publiserer
+      <p>«${attr(master.conflict.self)}» og «${attr(master.conflict.other)}» publiserer
       samtidig. Skru av den ene umiddelbart — nodene låser seg til én,
       men MQTT-bildet er upålitelig så lenge begge kjører.</p></div>`;
   }
@@ -1928,8 +1967,8 @@ async function renderNoder() {
             firmware uten anleggsstøtte?</span>`;
     else if (!mFersk)
       st = `master er offline — bekreftes når den kobler seg til`;
-    html += `<div class="card"><h2>ANLEGG ` +
-      (an.id ? `<span class="on">${an.id}</span>`
+    html += `<div class="card" id="kort-anlegg"><h2>ANLEGG ` +
+      (an.id ? `<span class="on">${attr(an.id)}</span>`
              : `<span class="hint">ikke satt</span>`) + `</h2>
       <div class="bar" style="margin:8px 0 4px;flex-wrap:wrap">
         <input style="width:70px;flex:0 0 auto;text-transform:uppercase"
@@ -1972,6 +2011,9 @@ async function renderNoder() {
           sim-knapper</label>
         <button class="mini" style="flex:0 0 auto"
                 onclick="saveAnlegg()">Lagre</button>
+        <button class="mini" style="flex:0 0 auto"
+                title="Forkast ulagrede endringer og vis det som er lagret"
+                onclick="forkastAnlegg()">Forkast</button>
         <span class="hint" style="flex:1 1 220px">${st}</span>
       </div>
       <div class="bar" style="margin:0 0 4px;flex-wrap:wrap">
@@ -2011,7 +2053,7 @@ async function renderNoder() {
   {
     const def = an.tider_def || [];
     const naa = an.tider || {};
-    html += `<div class="card"><h2>Tidslåser</h2>
+    html += `<div class="card" id="kort-tider"><h2>Tidslåser</h2>
       <p class="hint">Modelljernbaner kjører som regel med hurtigklokke,
       og da blir forbildets tider urimelig lange: 90 sekunders
       hjelpeutløsning er halvannet minutt ekte venting midt i en
@@ -2035,6 +2077,7 @@ async function renderNoder() {
     html += `</table>
       <div class="bar" style="margin:8px 0 4px">
         <button class="mini" onclick="saveAnlegg()">Lagre tidslåser</button>
+        <button class="mini" onclick="forkastAnlegg()">Forkast</button>
         <span class="hint">Lagres sammen med resten av
         anleggsinnstillingene, og publiseres til master straks.</span>
       </div></div>`;
@@ -2127,7 +2170,7 @@ async function renderNoder() {
         const erMaster = master.mac &&
           c.mac.replace(/:/g, "") === master.mac;
         html += `<tr><td>` +
-          (c.navn || `<span class="fri">?</span>`) +
+          (c.navn ? attr(c.navn) : `<span class="fri">?</span>`) +
           (erMaster ? ` <span class="on">master</span>` : ``) +
           `</td><td>` + (c.ip || `–`) + `</td><td>` + c.mac +
           `</td><td>` + (c.signal != null ? c.signal + ` dBm` : `–`) +
@@ -2215,7 +2258,7 @@ async function renderNoder() {
         : `ingen info mottatt ennå`) +
       `</p>`;
     for (const m of master.meldinger || [])
-      html += `<p><span class="off">⚠ ${m.tekst}</span> <span class="hint">(` +
+      html += `<p><span class="off">⚠ ${attr(m.tekst)}</span> <span class="hint">(` +
         fmtSek(Date.now() / 1000 - m.ts) + ` siden)</span></p>`;
     if (ota[fwFil] && st)
       html += `<div class="bar" style="margin:8px 0 4px">
@@ -2361,7 +2404,31 @@ async function renderNoder() {
          font-family:monospace;font-size:12px;white-space:pre"></div>
     </div>`;
 
+  // Det som skal overleve omtegningen: skitne skjemakort (selve
+  // elementene, med brukerens verdier), loggfilteret og loggens
+  // tekst/scroll — ellers tømtes filteret og loggen hoppet til bunnen
+  // hvert 3. s mens man leste lenger opp.
+  const gamle = anleggSkitten
+    ? ["kort-anlegg", "kort-tider"].map(id => document.getElementById(id))
+    : [];
+  const hFilt = (document.getElementById("h-filter") || {}).value || "";
+  const hGml = document.getElementById("h-liste");
+  const hTekst = hGml ? hGml.textContent : "";
+  const hTopp = hGml ? hGml.scrollTop : 0;
+  const hBunn = !hGml || hGml.scrollHeight - hGml.scrollTop -
+                         hGml.clientHeight < 4;
   sec.innerHTML = html || `<p class="hint">Ingen noder registrert ennå.</p>`;
+  for (const g of gamle) {
+    const ny = g && document.getElementById(g.id);
+    if (ny) ny.replaceWith(g);
+  }
+  const hf = document.getElementById("h-filter");
+  if (hf) hf.value = hFilt;
+  const hl = document.getElementById("h-liste");
+  if (hl && hTekst) {
+    hl.textContent = hTekst;
+    hl.scrollTop = hBunn ? hl.scrollHeight : hTopp;
+  }
   hentHendelser();
 }
 async function hentHendelser() {
@@ -2372,6 +2439,9 @@ async function hentHendelser() {
                         encodeURIComponent(filt));
   const j = await apiJson(r);
   if (!r.ok) { el.textContent = j.error || "feil"; return; }
+  // Følg bunnen bare hvis brukeren allerede står der
+  const bunn = el.scrollHeight - el.scrollTop - el.clientHeight < 4;
+  const topp = el.scrollTop;
   const rad = h => {
     const d = new Date(h.ts * 1000);
     const t = d.toTimeString().slice(0, 8) + "." +
@@ -2383,7 +2453,7 @@ async function hentHendelser() {
   el.textContent = (j.hendelser || []).map(rad).join("\n") ||
                    (j.aktiv ? "(ingen hendelser matcher)"
                             : "(logging er av — slå den på over)");
-  el.scrollTop = el.scrollHeight;   // nyeste nederst — vis dem
+  el.scrollTop = bunn ? el.scrollHeight : topp;   // nyeste nederst
   const cb = document.getElementById("h-aktiv");
   if (cb) cb.checked = !!j.aktiv;
   const an = document.getElementById("h-antall");
@@ -2576,6 +2646,10 @@ async function slaAvTestmodus() {
   const j = await apiJson(r);
   if (!r.ok) { toast(j.error, true); return; }
   document.getElementById("testbanner").style.display = "none";
+  // Et skittent anleggskort beholdes ved omtegning — fjern haken der
+  // også, ellers slo neste «Lagre» testmodus på igjen
+  const tb = document.getElementById("anlegg-test");
+  if (tb) tb.checked = false;
   if (currentView === "noder") renderNoder();
 }
 async function saveAnlegg() {
@@ -2612,6 +2686,7 @@ async function saveAnlegg() {
                           dekningsstilling, vis_sim, tider})});
   const j = await apiJson(r);
   if (!r.ok) { toast(j.error, true); return; }
+  anleggSkitten = false;   // lagret — serverens verdier gjelder igjen
   settTittel(j.id);
   if (j.ap_omdopt)
     alert("AP-et heter nå «" + j.ssid + "» — wifi-nettet du er koblet " +
@@ -2862,19 +2937,19 @@ function frRender() {
           ${frSel(frEndeFelt(), tv.til||"", true).replace('">—<',
             '">til: —<')}</select>
         ${frSignalCelle(tv, i)}
-        <input style="flex:1" value="${tv.notes||""}" placeholder="notat"
+        <input style="flex:1" value="${attr(tv.notes)}" placeholder="notat"
                onchange="TOGVEIER[${i}].notes=this.value.trim()">
         <span class="hint">bilde: ${frBilde(tv)}</span>
         <button class="mini" ${gid ? "" : "disabled"} title="Be master sikre togveien: forriglingen kontrollerer felt, fiendtlighet, frigivning og skifting, legger vekslene én om gangen og setter kjørsignal. Masterens svar vises på linjen under."
-                onclick="betjenTogvei('${gid}', 'sikre')">Sikre</button>
+                onclick="betjenTogvei(${jsArg(gid)}, 'sikre')">Sikre</button>
         <button class="mini" ${gid ? "" : "disabled"} title="Hjelpeutløsning trinn 1: setter togveiens startsignal i stopp — togveien er fortsatt forriglet. Som togveistillerne MOT hverandre. (Ikke det samme som signalstopp-bryteren, som sperrer hele anlegget.)"
-                onclick="betjenTogvei('${gid}', 'stopp')">Stopp</button>
+                onclick="betjenTogvei(${jsArg(gid)}, 'stopp')">Stopp</button>
         <button class="mini" ${gid ? "" : "disabled"} title="Hjelpeutløsning trinn 2: løser ut togveien. Avvises så lenge startsignalet viser kjørsignal — bruk Stopp først. Under sikring løses den ut direkte. Driftsbetjening: uten stillerapparatets 90 s tidsrelé."
-                onclick="betjenTogvei('${gid}', 'hjelpeutlos')">Utløs</button>
+                onclick="betjenTogvei(${jsArg(gid)}, 'hjelpeutlos')">Utløs</button>
         <button class="row-del" onclick="TOGVEIER.splice(${i},1);frRender()">✕</button>
       </div>
       <div class="bar" style="margin:0 0 4px">
-        <span id="tvsvar-${gid}" class="${/^avvist/.test(TVSVAR[gid] || "") ? "off" : "hint"}">${TVSVAR[gid] || ""}</span>
+        <span id="tvsvar-${attr(gid)}" class="${/^avvist/.test(TVSVAR[gid] || "") ? "off" : "hint"}">${attr(TVSVAR[gid] || "")}</span>
       </div>
       <div class="bar" style="margin:4px 0">
         <span class="hint" style="min-width:90px">Veksler:</span>` +
@@ -2891,7 +2966,7 @@ function frRender() {
         <button class="mini" title="Avled feltene av endene: linjefelt + vekselfelt + togspor (innkjør) / vekselfelt + linjefelt (utkjør). Overskriver listen."
                 onclick="frAutoFyll(${i})">auto</button>` +
       (tv.frie||[]).map((sf, j) =>
-        `<span>${sf} <button class="row-del" onclick="TOGVEIER[${i}].frie.splice(${j},1);frRender()">✕</button></span>`).join("") +
+        `<span>${attr(sf)} <button class="row-del" onclick="TOGVEIER[${i}].frie.splice(${j},1);frRender()">✕</button></span>`).join("") +
       `<select style="max-width:130px" onchange="if(this.value){(TOGVEIER[${i}].frie=TOGVEIER[${i}].frie||[]).push(this.value);frRender()}">
         ${frSel(felt.filter(f=>!(tv.frie||[]).includes(f)), "", true)}</select>
       </div>
@@ -3512,9 +3587,11 @@ setInterval(async () => {
   if (++backupTikk % 5 === 0) oppdaterBackup();
   oppdaterOtaBanner();
   if (currentView === "noder") {
-    // Ikke tegn på nytt mens brukeren skriver i et felt på fanen
+    // Ikke tegn på nytt mens brukeren skriver i et felt eller har et
+    // nedtrekk åpent på fanen
     const ae = document.activeElement;
-    if (ae && ae.tagName === "INPUT" && ae.closest("#view-noder")) return;
+    if (ae && ["INPUT", "SELECT", "TEXTAREA"].includes(ae.tagName) &&
+        ae.closest("#view-noder")) return;
     renderNoder();
   }
 }, 3000);

@@ -74,6 +74,13 @@ systemctl daemon-reload
 # Samme som HAL-UI: --now starter ikke en tjeneste som alt kjører,
 # så et gjenkjørt skript ville latt gammelt vaktbikkje-skript stå.
 systemctl enable nsi63-sta-watchdog.service
-systemctl restart nsi63-sta-watchdog.service
+# Restart bare på et AP som alt KJØRER (oppgradering av vaktbikkja).
+# På en fersk installasjon trakk restarten opp hostapd via Wants= før
+# dnsmasq hadde fått konfigen sin — et AP uten DHCP fram til reboot.
+if systemctl is-active --quiet hostapd; then
+  systemctl restart nsi63-sta-watchdog.service
+else
+  echo "  (vaktbikkja starter ved reboot, sammen med AP-et)"
+fi
 
 echo "Ferdig. Følg med:  journalctl -fu nsi63-sta-watchdog"

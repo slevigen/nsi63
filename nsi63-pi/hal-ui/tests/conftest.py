@@ -125,9 +125,20 @@ def _lag(tmp_path, monkeypatch, konfig_fra):
         kall.append(list(args))
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
     monkeypatch.setattr(modul.subprocess, "run", falsk_run)
+    # hostapd-konfigen ligger i testmappen (finnes ikke før testen lager
+    # den), så en testkjøring på en ekte Pi aldri døper om AP-et
+    monkeypatch.setattr(modul, "HOSTAPD_CONF", mappe / "hostapd.conf")
+    # Omstartene etter svaret kjøres i en Timer-tråd. I testene fanges
+    # jobbene i stedet, så de verken kjører etter at falsk_run er tatt
+    # bort igjen eller gjør testene tidsavhengige: testen kjører dem selv.
+    bakgrunn = []
+    ekte_etter_svaret = modul._etter_svaret
+    monkeypatch.setattr(modul, "_etter_svaret", bakgrunn.append)
 
     h = Hal(modul, mappe)
     h.subprocess_kall = kall
+    h.bakgrunn = bakgrunn
+    h.ekte_etter_svaret = ekte_etter_svaret
     yield h
     sys.modules.pop(navn, None)
 

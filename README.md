@@ -47,10 +47,12 @@ blir enheten master.
 
 ```bash
 sudo bash nsi63-pi/bootstrap-nsi63.sh
+sudo reboot
 ```
 
 Skriptet installerer mosquitto, setter opp aksesspunktet med hostapd
-og dnsmasq, og starter web-grensesnittet.
+og dnsmasq, og starter web-grensesnittet. Aksesspunktet og DHCP kommer
+først opp etter omstarten.
 
 3. Koble til wifi-nettet `NSI63` (passord `norsksignalindustri`) og
    åpne `http://10.206.0.1:8080`.
